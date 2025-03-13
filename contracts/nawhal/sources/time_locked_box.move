@@ -4,6 +4,8 @@ module nawhal::time_locked_box;
 use sui::balance::{Self, Balance};
 use sui::clock::Clock;
 
+use nawhal::util::get_sec;
+
 /// ------ Errors ------ ///
 const EInvalidUnlockPerSec: u64 = 1;
 const EInvalidUnlockTimestamp: u64 = 2;
@@ -83,7 +85,7 @@ public fun withdraw<T>(
     amount: u64,
     clock: &Clock,
 ): Balance<T> {
-    unlock(self, clock.timestamp_ms() / 1000);
+    self.unlock(get_sec(clock));
 
     let withdraw_balance = self.unlocked_balance.split(amount);
 
@@ -92,19 +94,20 @@ public fun withdraw<T>(
     withdraw_balance
 }
 
-/// Change the unlock per second if necessary.
-/// Abort if the new unlock per second is not positive.
-public fun change_unlock_per_sec<T>(
+/// Withdraw all the balance from the unlocked balance.
+public fun withdraw_all<T>(
     self: &mut TimeLockedBox<T>,
-    new_unlock_per_sec: u64,
-) {
-    check_unlock_per_sec_must_be_positive(new_unlock_per_sec);
+    clock: &Clock,
+): Balance<T> {
+    self.unlock( get_sec(clock));
 
-    self.unlock_per_sec = new_unlock_per_sec;
+    self.unlocked_balance.withdraw_all()
 }
+
 
 /// Unlocks the balance that is unlockable based on the time passed since previous unlock.
 /// Moves the amount from `locked_balance` to `unlocked_balance`.
+/// Abort if the timestamp is before the unlock start time or before the previous unlocked time.
 fun unlock<T>(
     self: &mut TimeLockedBox<T>,
     timestamp_sec: u64,
@@ -122,6 +125,52 @@ fun unlock<T>(
     self.accumulated_unlocked_amount = self.accumulated_unlocked_amount + unlockable_amount;
 
     check_accumulated_amount_is_valid(self);
+}
+
+/// Change the unlock per second if necessary.
+/// Abort if the new unlock per second is not positive.
+public fun change_unlock_per_sec<T>(
+    self: &mut TimeLockedBox<T>,
+    new_unlock_per_sec: u64,
+) {
+    check_unlock_per_sec_must_be_positive(new_unlock_per_sec);
+
+    self.unlock_per_sec = new_unlock_per_sec;
+}
+
+/// Changes `unlock_start_ts_sec` to a new value. 
+/// If the new value is in the past, it will be set to the current time.
+public fun change_unlock_start_ts_sec<T>(
+    self: &mut TimeLockedBox<T>,
+    new_unlock_start_ts_sec: u64,
+    clock: &Clock,
+) {
+    self.unlock(get_sec(clock));
+
+    let new_unlock_start_ts_sec = std::u64::max(new_unlock_start_ts_sec, get_sec(clock));
+    self.unlock_start_at_sec = new_unlock_start_ts_sec;
+    self.unlock_end_at_sec = new_unlock_start_ts_sec + calculate_unlock_period_at_sec(
+        balance::value(&self.locked_balance),
+        self.unlock_per_sec,
+    );
+    self.previous_unlocked_at_sec = new_unlock_start_ts_sec - 1;
+}
+
+/// Destroys the `TimeLockedBox<T>` when its balances are empty and if necessary.
+public fun destroy_empty<T>(self: TimeLockedBox<T>) {
+    let TimeLockedBox {
+        locked_balance,
+        unlock_start_at_sec: _,
+        unlock_per_sec: _,
+        unlocked_balance,
+        accumulated_total_amount: _,
+        accumulated_unlocked_amount: _,
+        previous_unlocked_at_sec: _,
+        unlock_end_at_sec: _,
+    } = self;
+
+    balance::destroy_zero(locked_balance);
+    balance::destroy_zero(unlocked_balance);
 }
 
 // ------ Getters ------ //
@@ -160,8 +209,6 @@ public fun accumulated_amount_values<T>(
 ): (u64, u64) {
     (self.accumulated_total_amount, self.accumulated_unlocked_amount)
 }
-
-
 
 // ------ Reads ------ //
 
@@ -297,6 +344,7 @@ fun test_change_unlock_per_sec_with_zero_should_fail() {
     destroy_for_testing(box);
 }
 
+// Test extraneous locked amount
 #[test]
 fun test_extraneous_locked_amount_should_work() {
     let box = new(balance::create_for_testing<USD>(1000), 100, 10);

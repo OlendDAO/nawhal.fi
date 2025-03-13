@@ -4,10 +4,10 @@ module nawhal::time_locked_box_tests;
 use sui::test_scenario::{Self as ts, Scenario};
 use sui::balance::{Self, Balance};
 
-use sui::sui::SUI;
-use sui::clock::{Self, Clock};
+use sui::clock::Clock;
 
 use nawhal::time_locked_box::{Self, TimeLockedBox};
+use nawhal::util::get_sec;
 
 use sui::test_utils::{Self, assert_eq};
 
@@ -56,6 +56,34 @@ fun withdraw_from_box_for_testing<T>(
     withdraw_balance
 }
 
+fun withdraw_all_from_box_for_testing<T>(
+    sc: &mut Scenario,
+    box: &mut TimeLockedBox<T>,
+    sender: address,
+): Balance<T> {
+    sc.next_tx(sender);
+    // Take Shared Clock
+    let clock = ts::take_shared<Clock>(sc);
+ 
+    let withdraw_balance = time_locked_box::withdraw_all(box, &clock);
+
+    ts::return_shared(clock);
+
+    withdraw_balance
+}
+
+/// Change unlock start time for testing
+fun change_unlock_start_sec_for_testing<T>(
+    sc: &mut Scenario,
+    box: &mut TimeLockedBox<T>,
+    new_unlock_start_sec: u64,
+    sender: address,
+) {
+    sc.next_tx(sender);
+    let clock = ts::take_shared<Clock>(sc);
+    box.change_unlock_start_ts_sec(new_unlock_start_sec, &clock);
+    ts::return_shared(clock);
+}
 
 fun check_time_locked_box_values<T>(
     box: &TimeLockedBox<T>,
@@ -82,8 +110,21 @@ fun check_time_locked_box_values<T>(
     assert_eq(unlocked_balance, actual_unlocked_balance);
 }
 
+fun get_max_withdrawable_amount<T>(
+    sc: &mut Scenario,
+    box: &TimeLockedBox<T>,
+    sender: address,
+): u64 {
+    sc.next_tx(sender);
+    let clock = ts::take_shared<Clock>(sc);
+    let max_withdrawable_amount = box.max_withdrawable_amount(get_sec(&clock));
+    ts::return_shared(clock);
+    
+    max_withdrawable_amount
+}
+
 #[test]
-fun new_time_locked_box_should_work() {
+fun test_new_time_locked_box_should_work() {
     
     let mut sc0 = ts::begin(alice());
 
@@ -134,7 +175,7 @@ fun new_time_locked_box_should_work() {
 }
 
 #[test]
-fun deposit_box_should_work() {
+fun test_deposit_box_should_work() {
     let mut sc0 = ts::begin(alice());
 
     let sc = &mut sc0;
@@ -171,7 +212,7 @@ fun deposit_box_should_work() {
 }
 
 #[test]
-fun withdraw_should_work() {
+fun test_withdraw_should_work() {
     let mut sc0 = ts::begin(alice());
 
     let sc = &mut sc0;
@@ -266,7 +307,7 @@ fun withdraw_should_work() {
 
 #[test, expected_failure(abort_code = time_locked_box::EInvalidUnlockTimestamp)]
 fun test_withdraw_before_unlock_start() {
-     let mut sc0 = ts::begin(alice());
+    let mut sc0 = ts::begin(alice());
 
     let sc = &mut sc0;
 
@@ -295,199 +336,134 @@ fun test_withdraw_before_unlock_start() {
     sc0.end();
 }
 
+#[test]
+fun test_withdraw_all_should_work() {
+    let mut sc0 = ts::begin(alice());
+
+    let sc = &mut sc0;
+
+    common_tests::create_clock_and_share(sc);
+
+    let mut usd_box = create_time_locked_box_for_testing<USD>(
+        sc, 
+        INITIAL_AMOUNT, 
+        UNLOCK_START_AT_SEC, 
+        UNLOCK_PER_SEC, 
+        alice());
+
+    common_tests::increase_clock_for_testing(sc, UNLOCK_START_AT_SEC + 3, alice());
+
+    // Withdraw a specified amount after 3 seconds
+    let withdrawn_balance3 = withdraw_all_from_box_for_testing(
+        sc,
+        &mut usd_box,
+        alice(),
+    );
+
+    assert_eq(withdrawn_balance3.value(), 40);
+
+    check_time_locked_box_values<USD>(
+        &usd_box,
+        0,
+        INITIAL_AMOUNT - 40,
+        UNLOCK_START_AT_SEC,
+        UNLOCK_PER_SEC,
+        UNLOCK_START_AT_SEC + 3,
+        200,
+        INITIAL_AMOUNT ,
+        40
+    );
 
 
-// #[test]
-// fun test_max_withdrawable_amount() {
-//     let (time_locked_box, scenario) = create_time_locked_box();
-    
-//     // Test before unlock start time
-//     let timestamp_before = UNLOCK_START_AT_SEC - 10;
-//     assert_eq(time_locked_box::max_withdrawable_amount(&time_locked_box, timestamp_before), 0);
-    
-//     // Test during unlock period
-//     let timestamp_during = UNLOCK_START_AT_SEC + 30;
-//     assert_eq(time_locked_box::max_withdrawable_amount(&time_locked_box, timestamp_during), 30 * UNLOCK_PER_SEC);
-    
-//     // Test after unlock end time
-//     let unlock_end = time_locked_box::unlock_end_at_sec(&time_locked_box);
-//     let timestamp_after = unlock_end + 10;
-//     assert_eq(time_locked_box::max_withdrawable_amount(&time_locked_box, timestamp_after), INITIAL_AMOUNT);
-    
-//     ts::end(scenario);
-// }
+    test_utils::destroy(usd_box);
+    test_utils::destroy(withdrawn_balance3);
 
+    sc0.end();
+}
 
+// Test change unlock start time
+#[test]
+fun test_change_unlock_start_ts_sec_should_work() {
+    let mut sc0 = ts::begin(alice());
 
+    let sc = &mut sc0;
 
-// #[test]
-// fun test_withdraw_after_unlock_end() {
-//     let (mut time_locked_box, mut scenario) = create_time_locked_box();
-    
-//     // Calculate unlock end time
-//     let unlock_end = time_locked_box::unlock_end_at_sec(&time_locked_box);
-    
-//     // Create a clock with timestamp after unlock end time
-//     let timestamp_ms = (unlock_end + 10) * 1000;
-//     ts::next_tx(&mut scenario, ADMIN);
-//     let ctx = ts::ctx(&mut scenario);
-//     let clock = clock::create_for_testing(ctx);
-//     clock::set_for_testing(&mut clock, timestamp_ms);
-    
-//     // Withdraw all
-//     let withdraw_balance = time_locked_box::withdraw(&mut time_locked_box, INITIAL_AMOUNT, &clock);
-    
-//     // Check withdrawn balance
-//     assert_eq(balance::value(&withdraw_balance), INITIAL_AMOUNT);
-    
-//     // Check updated balance values
-//     let (locked, unlocked) = time_locked_box::balance_values(&time_locked_box);
-//     assert_eq(locked, 0);
-//     assert_eq(unlocked, 0);
-    
-//     // Clean up
-//     balance::destroy_for_testing(withdraw_balance);
-//     clock::destroy_for_testing(clock);
-//     ts::end(scenario);
-// }
+    common_tests::create_clock_and_share(sc);
 
-// #[test]
-// fun test_getters() {
-//     let (time_locked_box, scenario) = create_time_locked_box();
-    
-//     // Test all getter functions
-//     assert_eq(time_locked_box::unlock_start_at_sec(&time_locked_box), UNLOCK_START_AT_SEC);
-//     assert_eq(time_locked_box::unlock_per_sec(&time_locked_box), UNLOCK_PER_SEC);
-//     assert_eq(time_locked_box::previous_unlocked_at_sec(&time_locked_box), 0);
-    
-//     // Calculate expected unlock end time
-//     // Since we can't call the internal function directly, we'll calculate it ourselves
-//     let expected_unlock_period = if (INITIAL_AMOUNT == 0) {
-//         0
-//     } else if (INITIAL_AMOUNT % UNLOCK_PER_SEC == 0) {
-//         INITIAL_AMOUNT / UNLOCK_PER_SEC
-//     } else {
-//         INITIAL_AMOUNT / UNLOCK_PER_SEC + 1
-//     };
-//     let expected_unlock_end = UNLOCK_START_AT_SEC + expected_unlock_period;
-//     assert_eq(time_locked_box::unlock_end_at_sec(&time_locked_box), expected_unlock_end);
-    
-//     ts::end(scenario);
-// }
+    let mut usd_box = create_time_locked_box_for_testing<USD>(
+        sc, 
+        INITIAL_AMOUNT, 
+        UNLOCK_START_AT_SEC, 
+        UNLOCK_PER_SEC, 
+        alice());
 
-// #[test]
-// fun test_check_functions() {
-//     // Test check_unlock_per_sec_must_be_positive
-//     time_locked_box::check_unlock_per_sec_must_be_positive(1);
-//     time_locked_box::check_unlock_per_sec_must_be_positive(100);
-    
-//     // Create a time locked box for other checks
-//     let balance = balance::create_for_testing<SUI>(INITIAL_AMOUNT);
-//     let time_locked_box = time_locked_box::new(
-//         balance,
-//         UNLOCK_START_AT_SEC,
-//         UNLOCK_PER_SEC
-//     );
-    
-//     // Test check_unlock_timestamp_is_more_than_start_at_and_previous_unlocked_at
-//     time_locked_box::check_unlock_timestamp_is_more_than_start_at_and_previous_unlocked_at(
-//         &time_locked_box,
-//         UNLOCK_START_AT_SEC + 1
-//     );
-    
-//     // Test check_locked_balance_more_than_unlockable_amount
-//     time_locked_box::check_locked_balance_more_than_unlockable_amount(
-//         &time_locked_box,
-//         INITIAL_AMOUNT
-//     );
-    
-//     // Test check_accumulated_amount_is_valid
-//     time_locked_box::check_accumulated_amount_is_valid(&time_locked_box);
-// }
+    common_tests::increase_clock_for_testing(sc, UNLOCK_START_AT_SEC, alice());
 
-// #[test, expected_failure(abort_code = time_locked_box::EInvalidUnlockTimestamp)]
-// fun test_check_unlock_timestamp_failure() {
-//     let balance = balance::create_for_testing<SUI>(INITIAL_AMOUNT);
-//     let time_locked_box = time_locked_box::new(
-//         balance,
-//         UNLOCK_START_AT_SEC,
-//         UNLOCK_PER_SEC
-//     );
-    
-//     // Should fail because timestamp is before unlock_start_at_sec
-//     time_locked_box::check_unlock_timestamp_is_more_than_start_at_and_previous_unlocked_at(
-//         &time_locked_box,
-//         UNLOCK_START_AT_SEC - 1
-//     );
-// }
+    let new_start_sec = 200;
+    change_unlock_start_sec_for_testing(sc, &mut usd_box, 200, alice());
 
-// #[test, expected_failure(abort_code = time_locked_box::ELockedBalanceLessThanUnlockableAmount)]
-// fun test_check_locked_balance_failure() {
-//     let balance = balance::create_for_testing<SUI>(INITIAL_AMOUNT);
-//     let time_locked_box = time_locked_box::new(
-//         balance,
-//         UNLOCK_START_AT_SEC,
-//         UNLOCK_PER_SEC
-//     );
+    check_time_locked_box_values<USD>(
+        &usd_box,
+        UNLOCK_PER_SEC,
+        INITIAL_AMOUNT - UNLOCK_PER_SEC,
+        new_start_sec,
+        UNLOCK_PER_SEC,
+        new_start_sec - 1,
+        INITIAL_AMOUNT / UNLOCK_PER_SEC + new_start_sec - 1,
+        INITIAL_AMOUNT,
+        UNLOCK_PER_SEC
+    );
     
-//     // Should fail because unlockable amount is more than locked balance
-//     time_locked_box::check_locked_balance_more_than_unlockable_amount(
-//         &time_locked_box,
-//         INITIAL_AMOUNT + 1
-//     );
-// }
+    test_utils::destroy(usd_box);
 
-// // We can't directly test the internal calculate_unlock_period_at_sec function,
-// // but we can test the behavior through the TimeLockedBox API
-// #[test]
-// fun test_unlock_period_calculation() {
-//     // Test with amount divisible by unlock_per_sec
-//     let balance1 = balance::create_for_testing<SUI>(60);
-//     let time_locked_box1 = time_locked_box::new(
-//         balance1,
-//         UNLOCK_START_AT_SEC,
-//         30
-//     );
-//     // Expected: 60/30 = 2
-//     assert_eq(
-//         time_locked_box::unlock_end_at_sec(&time_locked_box1) - UNLOCK_START_AT_SEC,
-//         2
-//     );
+    sc0.end();
+}
+
+#[test]
+fun test_max_withdrawable_amount_should_work() {
+    let mut sc0 = ts::begin(alice());
+
+    let sc = &mut sc0;
+
+    common_tests::create_clock_and_share(sc);
+
+    let usd_box = create_time_locked_box_for_testing<USD>(
+        sc, 
+        INITIAL_AMOUNT, 
+        UNLOCK_START_AT_SEC, 
+        UNLOCK_PER_SEC, 
+        alice());
+
+    let max_withdrawable_amount1 = get_max_withdrawable_amount(sc, &usd_box, alice());
+
+    assert_eq(max_withdrawable_amount1, 0);
+
+    common_tests::increase_clock_for_testing(sc, UNLOCK_START_AT_SEC - 1, alice());
+
+    let max_withdrawable_amount2 = get_max_withdrawable_amount(sc, &usd_box, alice());
+
+    assert_eq(max_withdrawable_amount2, 0);
+
+    common_tests::increase_clock_for_testing(sc, 1, alice());
+
+    let max_withdrawable_amount3 = get_max_withdrawable_amount(sc, &usd_box, alice());
+
+    assert_eq(max_withdrawable_amount3, 10);
+
+    common_tests::increase_clock_for_testing(sc, 10, alice());
+
+    let max_withdrawable_amount4 = get_max_withdrawable_amount(sc, &usd_box, alice());
+
+    assert_eq(max_withdrawable_amount4, 110);
     
-//     // Test with amount not divisible by unlock_per_sec
-//     let balance2 = balance::create_for_testing<SUI>(29);
-//     let time_locked_box2 = time_locked_box::new(
-//         balance2,
-//         UNLOCK_START_AT_SEC,
-//         30
-//     );
-//     // Expected: 29/30 + 1 = 1
-//     assert_eq(
-//         time_locked_box::unlock_end_at_sec(&time_locked_box2) - UNLOCK_START_AT_SEC,
-//         1
-//     );
     
-//     // Test with zero amount
-//     let balance3 = balance::create_for_testing<SUI>(0);
-//     let time_locked_box3 = time_locked_box::new(
-//         balance3,
-//         UNLOCK_START_AT_SEC,
-//         20
-//     );
-//     // Expected: 0
-//     assert_eq(
-//         time_locked_box::unlock_end_at_sec(&time_locked_box3) - UNLOCK_START_AT_SEC,
-//         0
-//     );
-// }
+    test_utils::destroy(usd_box);
 
-// #[test, expected_failure(abort_code = time_locked_box::EInvalidUnlockPerSec)]
-// fun test_new_with_zero_unlock_per_sec() {
-//     let balance = balance::create_for_testing<SUI>(100);
-//     let time_locked_box = time_locked_box::new(
-//         balance,
-//         UNLOCK_START_AT_SEC,
-//         0 // This should cause a failure
-//     );
-// }
+    sc0.end();
+}
 
+// TODO:
+#[test]
+fun test_withdraw_after_unlock_end_should_work() {
+
+}
