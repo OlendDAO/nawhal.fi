@@ -8,16 +8,34 @@ use sui::clock::{Self, Clock};
 
 use sui::test_scenario::{Self as ts, Scenario};
 
-use nawhal::account_ds::{Self, AccountRegistry};
+use nawhal::account_ds::AccountRegistry;
 
 use nawhal::account;
 
 /// Coins for testing
-public struct BTC has drop { }
+public struct TBTC has drop { }
 
-public struct ETH has drop { }
+public struct TETH has drop { }
 
-public struct USD has drop { }
+public struct TUSD has drop { }
+
+public struct TSUI has drop { }
+
+public struct NBTC has drop { } 
+
+public struct NETH has drop { }
+
+public struct NUSD has drop { }
+
+public struct NSUI has drop { }
+
+public struct LP_BTC has drop { }
+
+public struct LP_ETH has drop { }
+
+public struct LP_USD has drop { }
+
+public struct LP_SUI has drop { }
 
 /// Alice address for testing
 public fun alice(): address {
@@ -46,6 +64,13 @@ public fun increase_clock_for_testing(
     ts::return_shared(clock);
 }
 
+public fun clock_timestamp_ms(sc: &mut Scenario): u64 {
+    let clock = sc.take_shared<Clock>();
+    let timestamp = clock.timestamp_ms();
+    ts::return_shared(clock);
+    
+    timestamp
+}
 
 /// Register a user to the registry
 public fun register_user_for_testing(
@@ -56,9 +81,11 @@ public fun register_user_for_testing(
     sc.next_tx(sender);
 
     let mut registry = sc.take_shared<AccountRegistry>();
-    let account_id = account::create_account_and_register(&mut registry, name, sc.ctx());
+    let clock = sc.take_shared<Clock>();
+
+    let account_id = account::create_account_and_register(&mut registry, name, &clock, sc.ctx());
 
     ts::return_shared(registry);
-
+    ts::return_shared(clock);
     account_id
 }
