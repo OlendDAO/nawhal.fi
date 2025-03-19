@@ -32,7 +32,7 @@ fun deposit_and_withdraw_should_work() {
 
     let _account_id = common_tests::register_user_for_testing(sc, option::none(), alice());
 
-    create_vault_for_testing<TSUI, LP_SUI>(sc, alice());
+    create_vault_for_testing<TSUI, LP_SUI>(sc, option::some(1_000_000_000), alice());
 
     deposit_for_testing<TSUI, LP_SUI>(sc, 1_000_000_000, alice());
 
@@ -46,7 +46,15 @@ fun deposit_and_withdraw_should_work() {
     check_staking_info<TSUI, LP_SUI>(sc, 700_000_000, alice());
     check_account_profile<TSUI, LP_SUI>(sc, 700_000_000, alice());
 
+    let withdrawn_balance2 = withdraw_for_testing<TSUI, LP_SUI>(sc, 700_000_000, alice());
+
+    assert_eq(withdrawn_balance2.value(), 700_000_000);
+
+    check_account_vault_not_exists_in_staking_registry<TSUI, LP_SUI>(sc, alice());
+    check_staking_info_not_exists_in_account_profile<TSUI, LP_SUI>(sc, alice());
+
     withdrawn_balance.destroy_for_testing();
+    withdrawn_balance2.destroy_for_testing();
 
     sc0.end();
 }
@@ -88,12 +96,12 @@ fun withdraw_for_testing<T, LPT>(sc: &mut Scenario, amount: u64, sender: address
     withdrawn_balance
 }
 
-fun create_vault_for_testing<T, LPT>(sc: &mut Scenario, sender: address) {
+fun create_vault_for_testing<T, LPT>(sc: &mut Scenario, tvl_cap: Option<u64>, sender: address) {
     sc.next_tx(sender);
 
     let lp_treasury = coin::create_treasury_cap_for_testing<LPT>(sc.ctx());
     let clock = sc.take_shared<Clock>();
-    let vault_cap = vault::new_vault_and_share<T, LPT>(lp_treasury, &clock, sc.ctx());
+    let vault_cap = vault::new_vault_and_share<T, LPT>(lp_treasury, b"test name".to_ascii_string(), b"test description".to_ascii_string(), tvl_cap, &clock, sc.ctx());
 
     transfer::public_transfer(vault_cap, sc.sender());
 
@@ -139,3 +147,38 @@ fun check_account_profile<T, LPT>(sc: &mut Scenario, amount: u64, sender: addres
     sc.return_to_sender(account_cap);
     ts::return_shared(vault);
 }   
+
+fun check_account_vault_not_exists_in_staking_registry<T, LPT>(
+    sc: &mut Scenario,
+    sender: address,
+) {
+    sc.next_tx(sender);
+
+    let registry = sc.take_shared<StakingRegistry>();
+    let account_cap = sc.take_from_sender<AccountProfileCap>();
+    let account_id = account_cap.account_of();
+    let vault = sc.take_shared<Vault<T, LPT>>();
+
+    assert!(!registry.contains(&account_id, &vault.vault_id()), 0);
+
+    ts::return_shared(registry);
+    sc.return_to_sender(account_cap);
+    ts::return_shared(vault);
+}
+
+fun check_staking_info_not_exists_in_account_profile<T, LPT>(
+    sc: &mut Scenario,
+    sender: address,
+) {
+    sc.next_tx(sender);
+
+    let account_cap = sc.take_from_sender<AccountProfileCap>();
+    let account_registry = sc.take_shared<AccountRegistry>();
+    let vault = sc.take_shared<Vault<T, LPT>>();
+
+    assert!(account_registry.borrow_account(account_cap.account_of()).get_staking_info(&vault.vault_id()).is_none(), 0);
+    
+    ts::return_shared(account_registry);
+    sc.return_to_sender(account_cap);
+    ts::return_shared(vault);
+}

@@ -45,7 +45,7 @@ public fun deposit<T, LPT>(
     _ctx: &mut TxContext,
 ) {
     vault.assert_version();
-
+    vault.assert_status();
     if (collateral.value() == 0) {
         collateral.destroy_zero();
     } else {
@@ -63,7 +63,8 @@ public fun deposit<T, LPT>(
             clock.timestamp_ms(),
         );
 
-        vault.borrow_collateral_mut().join(collateral);         
+        vault.borrow_collateral_mut().join(collateral);   
+        vault.assert_tvl_cap();
     };
 }
 
@@ -78,7 +79,8 @@ public fun withdraw<T, LPT>(
     _ctx: &mut TxContext,
 ): Balance<T> {
     vault.assert_version();
-
+    vault.assert_status();
+    
     if (amount == 0) {
         balance::zero()
     } else {
@@ -111,7 +113,7 @@ public fun withdraw<T, LPT>(
     }
 }
 
-// /// Delegate Collateral to a Pool
+// /// Delegate Collateral to a Pool    TODO:
 // public fun delegate_collateral<T, YT>(
 //     vault: &mut Vault<T, YT>,
 //     payment: Balance<T>,
@@ -143,6 +145,16 @@ public(package) fun remove_staking_info(
 ) {
     let vaults = self.stake_infos.get_mut(&account_id);
     vaults.remove(&vault_id);
+}
+
+/// Check if registry contains the account id and vault id
+public(package) fun contains(
+    self: &StakingRegistry,
+    account_id: &ID,
+    vault_id: &ID,
+):bool {
+    let vaults = self.stake_infos.get(account_id);
+    vaults.contains(vault_id)
 }
 
 /// Validate the withdraw amount

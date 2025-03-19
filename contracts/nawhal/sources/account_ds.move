@@ -6,6 +6,7 @@ module nawhal::account_ds;
 use std::ascii::String;
 use std::type_name::{Self, TypeName};
 
+use sui::event;
 use sui::object_table::{Self as ot, ObjectTable};
 use sui::table::{Self, Table};
 use sui::vec_set::{Self, VecSet};
@@ -23,6 +24,13 @@ const MAX_NAME_LENGTH: u64 = 64;
 const EINVALID_NAME: u64 = 1;
 const EAccountAlreadyRegistered: u64 = 2;
 const EOwnerAlreadyRegistered: u64 = 3;
+
+// ------ Events ------ //
+public struct AccountCreatedEvent has copy, drop {
+    account_id: ID,
+    name: String,
+    created_at_ms: u64,
+}
 
 // ------ Structs ------ //
 /// The global registry of the accounts
@@ -90,7 +98,7 @@ public fun new_registry(ctx: &mut TxContext): AccountRegistry {
 /// Abort if the name is invalid
 public fun new_profile(
     name: String,
-    latest_updated_ms: u64,
+    created_at_ms: u64,
     ctx: &mut TxContext,
 ): (AccountProfile, AccountProfileCap) {
     validate_name(name);
@@ -100,7 +108,7 @@ public fun new_profile(
         name,
         stakes: vec_map::empty(),
         debts: vec_map::empty(),
-        latest_updated_ms,
+        latest_updated_ms: created_at_ms,
     };
 
     let cap = AccountProfileCap {
@@ -108,6 +116,8 @@ public fun new_profile(
         account_id: profile.account_id(),
         delegatees: vec_set::empty(),
     };
+
+    emit_account_created_event(profile.account_id(), name, created_at_ms);
 
     (profile, cap)
 }
@@ -163,7 +173,7 @@ public fun new_account_and_register(
     cap
 }
 
-// /// Derivate a sub account profile for other account
+// /// Derivate a sub account profile for other account TODO:
 // public fun delegate_account(
 //     registry: &mut AccountRegistry,
 //     delegator: &mut AccountProfileCap,
@@ -185,6 +195,19 @@ public fun new_account_and_register(
 //         registry.add_account(profile);
 //     }
 // }
+
+/// Claim performance TODO:
+/// when user deposit assets into a vault, will gain performance
+#[allow(unused_type_parameter)]
+public fun claim<T, LPT>(
+    _registry: &mut AccountRegistry,
+    _account_cap: &AccountProfileCap,
+    _vault_id: ID,
+    _amount: u64,
+    _ctx: &mut TxContext,
+) {
+    abort 0
+}
 
 /// Add a new account profile to the registry
 /// Abort if the account already exists
@@ -324,6 +347,17 @@ public fun validate_account_registered(registry: &AccountRegistry, account_id: I
 /// Validate a user register to registry or not
 public fun validate_user_registered(registry: &AccountRegistry, owner: address) {
     assert!(!registry.owners.contains(owner), EOwnerAlreadyRegistered);
+}
+
+/// Emit account created event
+public fun emit_account_created_event(account_id: ID, name: String, created_at_ms: u64) {
+    let event = AccountCreatedEvent {
+        account_id,
+        name,
+        created_at_ms,
+    };  
+
+    event::emit(event);
 }
 
 /// For testing
