@@ -12,6 +12,8 @@ use nawhal::account_ds::AccountRegistry;
 
 use nawhal::account;
 
+use nawhal::liquidity_layer;
+
 /// Coins for testing
 public struct TBTC has drop { }
 
@@ -88,4 +90,11 @@ public fun register_user_for_testing(
     ts::return_shared(registry);
     ts::return_shared(clock);
     account_id
+}
+
+// initialize a new LiquidityLayer for testing
+public fun init_liquidity_layer_for_testing(sc: &mut Scenario, sender: address) {
+    sc.next_tx(sender);
+
+    liquidity_layer::init_for_testing(sc.ctx());
 }

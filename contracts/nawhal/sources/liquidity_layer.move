@@ -67,21 +67,44 @@ public enum WithdrawStatus has copy, drop, store {
 /// Create a `LiquidityLayer` and share it,
 /// Create a `AdminCap` and transfer it to the sender(publisher)
 fun init(ctx: &mut TxContext) {
-    let liquidity_layer = create_liquidity_layer(ctx);
+    let liquidity_layer = new_liquidity_layer(ctx);
 
     transfer::share_object(liquidity_layer);
 
     admin::create_admin_cap_and_transfer(ctx);
 }
 
-/// Create a new LiquidityLayer
-public fun create_liquidity_layer(ctx: &mut TxContext): LiquidityLayer {
+// ------- new structs ------- //
+/// New a new LiquidityLayer
+public fun new_liquidity_layer(ctx: &mut TxContext): LiquidityLayer {
     LiquidityLayer {
         id: object::new(ctx),
         liquidity_vaults: object_bag::new(ctx),
         asset_types: vec_map::empty(),
         status: LiquidityStatus::Active,
     }
+}
+
+/// New a new LiquidityVault
+public fun new_liquidity_vault<T>(balance: Balance<T>, ctx: &mut TxContext): LiquidityVault<T> {
+    LiquidityVault {
+        id: object::new(ctx),
+        balance,
+        borrow_status: BorrowStatus::Borrowable,
+        withdraw_status: WithdrawStatus::Withdrawable,
+        created_at_ms: ctx.epoch(),
+        created_at_epoch: ctx.epoch(),
+    }
+}   
+
+/// New an Active LiquidityStatus 
+public fun new_active_liquidity_status(): LiquidityStatus {
+    LiquidityStatus::Active
+}
+
+/// New an Paused LiquidityStatus 
+public fun new_paused_liquidity_status(): LiquidityStatus {
+    LiquidityStatus::Paused
 }
 
 /// Register a new asset vault to the LiquidityLayer.
@@ -95,21 +118,30 @@ public fun create_liquidity_layer(ctx: &mut TxContext): LiquidityLayer {
 /// * If the asset type is already registered.
 public(package) fun register_asset_vault<T>(liquidity_layer: &mut LiquidityLayer, payload: Balance<T>, ctx: &mut TxContext) {
     let asset_type = type_name::get<T>();
+    check_liquidity_layer_is_active(liquidity_layer);
     check_asset_type_is_not_registered(liquidity_layer, &asset_type);
 
-    let liquidity_vault = LiquidityVault {
-        id: object::new(ctx),
-        balance: payload,
-        borrow_status: BorrowStatus::Borrowable,
-        withdraw_status: WithdrawStatus::Withdrawable,
-        created_at_ms: ctx.epoch(),
-        created_at_epoch: ctx.epoch(),
-    };  
+    let liquidity_vault = new_liquidity_vault(payload, ctx);
             
     let liquidity_vault_id = liquidity_vault.vault_id();
 
     liquidity_layer.asset_types.insert(asset_type, liquidity_vault_id);
     liquidity_layer.liquidity_vaults.add(liquidity_vault_id, liquidity_vault);  
+}
+
+/// Register a new asset vault to the LiquidityLayer by AdminCap
+public fun register_vault_by_admin_cap<T>(liquidity_layer: &mut LiquidityLayer, _admin_cap: &AdminCap, payload: Balance<T>, ctx: &mut TxContext) {
+    liquidity_layer.register_asset_vault(payload, ctx);
+}
+
+/// Pause the liquidity layer
+public fun pause_liquidity_layer(liquidity_layer: &mut LiquidityLayer, _admin_cap: &AdminCap) {
+    liquidity_layer.set_status(LiquidityStatus::Paused);
+}
+
+/// Resume the liquidity layer
+public fun resume_liquidity_layer(liquidity_layer: &mut LiquidityLayer, _admin_cap: &AdminCap) {
+    liquidity_layer.set_status(LiquidityStatus::Active);
 }
 
 // ------- Checks ------- //
@@ -119,9 +151,19 @@ public fun check_asset_type_is_not_registered(liquidity_layer: &LiquidityLayer, 
     assert!(!contains_asset_type(liquidity_layer, asset_type), EAssetTypeAlreadyRegistered);
 }
 
+/// Checks if the liquidity layer is active.
+/// Aborts with `EInvalidLiquidityStatus` if the liquidity layer is not active.
+public fun check_liquidity_layer_is_active(liquidity_layer: &LiquidityLayer) {
+    assert!(liquidity_layer.status == LiquidityStatus::Active, EInvalidLiquidityStatus);
+}
+
 // ------- Getters ------- //
 public fun layer_id(liquidity_layer: &LiquidityLayer): ID {
     object::id(liquidity_layer)
+}
+
+public fun layer_status(liquidity_layer: &LiquidityLayer): LiquidityStatus {
+    liquidity_layer.status
 }
 
 public fun vault_id<T>(liquidity_vault: &LiquidityVault<T>): ID {
@@ -134,7 +176,7 @@ public fun vault_balance<T>(liquidity_vault: &LiquidityVault<T>): u64 {
 
 // ------- Views ------- //
 /// Get assets amount registered in the liquidity layer.
-public fun assets_amount(liquidity_layer: &LiquidityLayer): u64 {
+public fun asset_amount(liquidity_layer: &LiquidityLayer): u64 {
     liquidity_layer.asset_types.size()
 }
 
@@ -143,8 +185,26 @@ public fun contains_asset_type(liquidity_layer: &LiquidityLayer, asset_type: &Ty
     liquidity_layer.asset_types.contains(asset_type)
 }
 
+/// Get the liquidity layer is active or not.
+public fun is_active(liquidity_layer: &LiquidityLayer): bool {
+    liquidity_layer.status == LiquidityStatus::Active
+}
+
+/// Borrow the asset balance of the given asset type.
+public fun borrow_vault<T>(liquidity_layer: &LiquidityLayer): &LiquidityVault<T> {
+    let asset_type = type_name::get<T>();
+    let liquidity_vault_id = liquidity_layer.asset_types.get(&asset_type);
+    liquidity_layer.liquidity_vaults.borrow<ID, LiquidityVault<T>>(*liquidity_vault_id)
+}
+
+/// Get the asset balance of the given asset type.
+public fun get_asset_balance<T>(liquidity_layer: &LiquidityLayer): u64 {
+    let liquidity_vault = liquidity_layer.borrow_vault<T>();
+    liquidity_vault.balance.value()
+}
+
 // ------- Setters ------- //
-public fun set_status(liquidity_layer: &mut LiquidityLayer, status: LiquidityStatus) {
+public(package) fun set_status(liquidity_layer: &mut LiquidityLayer, status: LiquidityStatus) {
     liquidity_layer.status = status;
 }
 
@@ -166,14 +226,60 @@ public fun destroy_liquidity_layer_for_testing(layer: LiquidityLayer) {
     liquidity_vaults.destroy_empty();
 }
 
+#[test_only]
+public fun destroy_liquidity_vault_for_testing<T>(vault: LiquidityVault<T>) {
+    let LiquidityVault {
+        id,
+        balance,
+        borrow_status: _,
+        withdraw_status: _,
+        created_at_ms: _,
+        created_at_epoch: _,
+    } = vault;
+
+    id.delete();
+    balance.destroy_for_testing();
+}
+
 #[test]
 fun test_create_liquidity_layer_should_work() {
     let mut ctx = tx_context::dummy();
 
-    let layer = create_liquidity_layer(&mut ctx);
+    let layer = new_liquidity_layer(&mut ctx);
 
     assert!(layer.status == LiquidityStatus::Active, EInvalidLiquidityStatus);
     assert!(layer.asset_types.size() == 0, 0);
 
     destroy_liquidity_layer_for_testing(layer);
 }
+
+// Test Set Liquidity Layer Status
+#[test]
+fun test_set_liquidity_layer_status_should_work() {
+    let mut ctx = tx_context::dummy();
+
+    let mut layer = new_liquidity_layer(&mut ctx);
+
+    set_status(&mut layer, LiquidityStatus::Paused);
+
+    assert!(layer.status == LiquidityStatus::Paused, EInvalidLiquidityStatus);
+
+    destroy_liquidity_layer_for_testing(layer);
+}
+
+// Test Create Liquidity Vault
+#[test]
+fun test_create_liquidity_vault_should_work() {
+    use sui::sui::SUI;
+    use sui::balance;
+    let mut ctx = tx_context::dummy();
+
+    let payload = balance::zero<SUI>();
+
+    let vault = new_liquidity_vault(payload, &mut ctx);
+
+    assert!(vault.balance.value() == 0, 0);
+
+    destroy_liquidity_vault_for_testing<SUI>(vault);
+}
+
