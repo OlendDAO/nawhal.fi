@@ -6,6 +6,7 @@ module nawhal::account_ds;
 use std::ascii::String;
 use std::type_name::{Self, TypeName};
 
+use sui::clock::Clock;
 use sui::event;
 use sui::object_table::{Self as ot, ObjectTable};
 use sui::table::{Self, Table};
@@ -54,18 +55,21 @@ public enum AccountProfileStatus has copy, drop, store {
 public struct AccountProfile has key, store {
     id: UID,
     name: String,
-    // Store (vault_id, staking_info) pair
+    // Store (lending_protocol_id, staking_info) pair
     stakes: VecMap<ID, StakingInfo>,
     // Store (pool_id, debt_info) pair
     debts: VecMap<ID, DebtInfo>,
     latest_updated_ms: u64,
+    status: AccountProfileStatus,
 }
 
 /// The staking info of a vault
 public struct StakingInfo has store, copy, drop {
-    vault_id: ID,
-    collateral_type: TypeName,
-    value: u64,
+    lending_protocol_id: ID,
+    asset_type: TypeName,
+    shares: u64,
+    total_amount: u64,
+    latest_updated_ms: u64,
 }
 
 /// The debt info of a pool
@@ -109,6 +113,7 @@ public fun new_profile(
         stakes: vec_map::empty(),
         debts: vec_map::empty(),
         latest_updated_ms: created_at_ms,
+        status: AccountProfileStatus::Active,
     };
 
     let cap = AccountProfileCap {
@@ -123,13 +128,17 @@ public fun new_profile(
 }
 
 public fun new_staking_info<T>(
-    vault_id: ID,
-    value: u64,
+    lending_protocol_id: ID,
+    total_amount: u64,
+    shares: u64,
+    latest_updated_ms: u64,
 ): StakingInfo {
     StakingInfo {
-        vault_id,
-        collateral_type: type_name::get<T>(),
-        value
+        lending_protocol_id,
+        asset_type: type_name::get<T>(),
+        shares,
+        total_amount,
+        latest_updated_ms,
     }
 }
 
@@ -171,6 +180,39 @@ public fun new_account_and_register(
     registry.add_account(profile);
 
     cap
+}
+
+/// Create a new account and register it
+public fun create_account_and_register(
+    registry: &mut AccountRegistry,
+    name: Option<String>,
+    clock: &Clock,
+    ctx: &mut TxContext,
+): ID {
+    let cap = registry.new_account_and_register(name, ctx.sender(), clock.timestamp_ms(), ctx);
+    let account_id = cap.account_of();
+
+    cap.transfer(ctx.sender());
+
+    account_id
+}
+
+/// Borrow account profile or create it if it doesn't exist
+public fun borrow_or_create_profile(registry: &mut AccountRegistry, clock: &Clock, ctx: &mut TxContext): &mut AccountProfile {
+    let sender = ctx.sender();
+    let account_id_opt = registry.account_id_of(sender);
+
+    let account_id = if (account_id_opt.is_none()) {
+        let cap = registry.new_account_and_register(option::none(), sender, clock.timestamp_ms(), ctx);
+        let account_id = cap.account_of();
+        transfer_profile_cap(cap, sender);
+
+        account_id
+    } else {
+        *account_id_opt.borrow()
+    };
+
+    registry.borrow_account_mut(account_id)
 }
 
 // /// Derivate a sub account profile for other account TODO:
@@ -227,13 +269,16 @@ public(package) fun add_owner(registry: &mut AccountRegistry, owner: address, ac
 }
 
 /// Add the staking value
-public(package) fun add_staking_value<T>(self: &mut AccountProfile, vault_id: ID, value: u64) {
-    if (self.stakes.contains(&vault_id)) {
-        let stakes = self.stakes.get_mut(&vault_id);
+public(package) fun add_staking_value<T>(self: &mut AccountProfile, protocol_id: ID, value: u64, latest_updated_ms: u64) {
+    // TODO: Update shares
+    let shares = 0;
 
-        stakes.value = stakes.value + value;
+    if (self.stakes.contains(&protocol_id)) {
+        let stakes = self.stakes.get_mut(&protocol_id);
+        stakes.shares = shares;
+        stakes.total_amount = stakes.total_amount + value;
     } else {
-        self.stakes.insert(vault_id, new_staking_info<T>(vault_id, value));
+        self.stakes.insert(protocol_id, new_staking_info<T>(protocol_id, value, shares, latest_updated_ms));
     }
 }
 
@@ -242,7 +287,7 @@ public(package) fun add_staking_value<T>(self: &mut AccountProfile, vault_id: ID
 public(package) fun sub_staking_value(self: &mut AccountProfile, vault_id: ID, value: u64) {
     let stakes = self.stakes.get_mut(&vault_id);
 
-    stakes.value = stakes.value - value;
+    stakes.total_amount = stakes.total_amount - value;
 }
 
 /// Remove staking info
@@ -286,11 +331,20 @@ public fun name(self: &AccountProfile): String {
     self.name
 }
 
-public fun get_staking_info(self: &AccountProfile, vault_id: &ID): Option<StakingInfo> {
-    self.stakes.try_get(vault_id)
+/// Get the staking total amount of the protocol id
+/// Returns 0 if the protocol id does not exist
+public fun stake_total_amount(self: &AccountProfile, protocol_id: &ID): u64 {
+    let stake_info = self.staking_info(protocol_id);
+
+    stake_info.map!(|info| info.total_amount).get_with_default(0)
 }
 
-public fun get_debt_info(self: &AccountProfile, pool_id: ID): Option<DebtInfo> {
+/// Get the staaking total amount of the given protocol
+public fun staking_info(self: &AccountProfile, protocol_id: &ID): Option<StakingInfo> {
+    self.stakes.try_get(protocol_id)
+}
+
+public fun debt_info(self: &AccountProfile, pool_id: ID): Option<DebtInfo> {
     self.debts.try_get(&pool_id)
 }
 
@@ -322,14 +376,14 @@ public fun account_of(self: &AccountProfileCap): ID {
     self.account_id
 }
 
-/// Get staking value
-public fun staking_value(self: &StakingInfo): u64 {
-    self.value
+/// Get staking total amount
+public fun staking_total_amount(self: &StakingInfo): u64 {
+    self.total_amount
 }
 
 /// Get staking type
-public fun staking_type(self: &StakingInfo): TypeName {
-    self.collateral_type
+public fun staking_asset_type(self: &StakingInfo): TypeName {
+    self.asset_type
 }
 
 /// Validations

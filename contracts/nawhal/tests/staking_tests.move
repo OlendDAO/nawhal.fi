@@ -118,14 +118,14 @@ fun check_staking_info<T, LPT>(sc: &mut Scenario, amount: u64, sender: address) 
     let account_id = account_cap.account_of();
     let profile = account_registry.borrow_account(account_id);
     
-    let mut staking_info = profile.get_staking_info(&vault.vault_id());
+    let mut staking_info = profile.staking_info(&vault.vault_id());
 
     assert!(staking_info.is_some(), 0);
 
     let staking_info = staking_info.extract();
 
-    assert_eq(staking_info.staking_value(), amount);
-    assert_eq(staking_info.staking_type(), type_name::get<T>());
+    assert_eq(staking_info.staking_total_amount(), amount);
+    assert_eq(staking_info.staking_asset_type(), type_name::get<T>());
 
     ts::return_shared(account_registry);
     sc.return_to_sender(account_cap);
@@ -141,7 +141,7 @@ fun check_account_profile<T, LPT>(sc: &mut Scenario, amount: u64, sender: addres
     let account_id = account_cap.account_of();
     let profile = account_registry.borrow_account(account_id);
     
-    assert_eq(profile.get_staking_info(&vault.vault_id()).extract().staking_value(), amount);
+    assert_eq(profile.staking_info(&vault.vault_id()).extract().staking_total_amount(), amount);
 
     ts::return_shared(account_registry);
     sc.return_to_sender(account_cap);
@@ -176,7 +176,7 @@ fun check_staking_info_not_exists_in_account_profile<T, LPT>(
     let account_registry = sc.take_shared<AccountRegistry>();
     let vault = sc.take_shared<Vault<T, LPT>>();
 
-    assert!(account_registry.borrow_account(account_cap.account_of()).get_staking_info(&vault.vault_id()).is_none(), 0);
+    assert!(account_registry.borrow_account(account_cap.account_of()).staking_info(&vault.vault_id()).is_none(), 0);
     
     ts::return_shared(account_registry);
     sc.return_to_sender(account_cap);

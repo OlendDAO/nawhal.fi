@@ -51,7 +51,8 @@ public fun deposit<T, LPT>(
     } else {
         let account_id = account_cap.account_of();
         let profile = account_registry.borrow_account_mut(account_id);
-        profile.add_staking_value<T>(vault.vault_id(), collateral.value());
+        
+        profile.add_staking_value<T>(vault.vault_id(), collateral.value(), clock.timestamp_ms());
         profile.update_latest_updated_ms(clock.timestamp_ms());
 
         add_staking_info(staking_registry, account_id, vault.vault_id());
@@ -87,13 +88,13 @@ public fun withdraw<T, LPT>(
         let account_id = account_cap.account_of();
         let profile = account_registry.borrow_account_mut(account_id);
 
-        let stake_info = profile.get_staking_info(&vault.vault_id()).extract();
+        let stake_info = profile.staking_info(&vault.vault_id()).extract();
 
-        validate_withdraw_amount(stake_info.staking_value(), amount);
+        validate_withdraw_amount(stake_info.staking_total_amount(), amount);
 
         // If the withdraw amount is equal to the staking value, remove the staking info,
         // remove the staking info from the account profile and staking registry
-        if (stake_info.staking_value() == amount) {
+        if (stake_info.staking_total_amount() == amount) {
             profile.remove_staking_info(vault.vault_id());
             staking_registry.remove_staking_info(account_id, vault.vault_id());
         } else {

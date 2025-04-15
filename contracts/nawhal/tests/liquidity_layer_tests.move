@@ -5,7 +5,8 @@ module nawhal::liquidity_layer_tests;
 use sui::balance::Balance;
 use sui::coin;
 use sui::clock::Clock;
-use nawhal::liquidity_layer::{Self, LiquidityLayer, LiquidityStatus};
+use nawhal::liquidity_layer;
+use nawhal::liquidity_layer_model::{Self,LiquidityLayer, LiquidityStatus};
 
 use sui::test_scenario::{Self as ts, Scenario};
 use sui::test_utils::{Self as tu};
@@ -27,7 +28,7 @@ fun test_liquidity_layer_main_flow_should_work() {
     register_asset_vault<TSUI>(sc, alice()); 
 
     // Check if the asset type is registered
-    check_liquidity_layer_status(sc, liquidity_layer::new_active_liquidity_status(), alice());
+    check_liquidity_layer_status(sc, liquidity_layer_model::new_active_liquidity_status(), alice());
 
     check_asset_vault_registered<TSUI>(sc, 0, alice());
 
@@ -69,11 +70,11 @@ fun test_register_liquidity_vault_should_work() {
     // use sui::balance;
     let mut ctx = tx_context::dummy();
 
-    let mut layer = liquidity_layer::new_liquidity_layer(&mut ctx);
+    let mut layer = liquidity_layer_model::new_liquidity_layer(&mut ctx);
 
-    layer.register_asset_vault<TSUI>(&mut ctx);
+    liquidity_layer::register_asset_vault<TSUI>(&mut layer, &mut ctx);
 
-    assert!(liquidity_layer::asset_type_amount(&layer) == 1, 0);
+    assert!(liquidity_layer_model::asset_type_amount(&layer) == 1, 0);
 
     tu::destroy(layer);
 }
@@ -83,7 +84,7 @@ public fun register_asset_vault<T>(sc: &mut Scenario, sender: address) {
 
     let mut layer = sc.take_shared<LiquidityLayer>();
 
-    layer.register_asset_vault<T>(sc.ctx());
+    liquidity_layer::register_asset_vault<T>(&mut layer, sc.ctx());
 
     ts::return_shared(layer);
 }
@@ -95,7 +96,7 @@ fun register_protocol<T>(sc: &mut Scenario, protocol_id: ID, sender: address) {
     let mut layer = sc.take_shared<LiquidityLayer>();
     let admin_cap = sc.take_from_sender<AdminCap>();
 
-    layer.register_protocol<T>(&admin_cap, protocol_id, sc.ctx());
+    liquidity_layer::register_protocol<T>(&mut layer, &admin_cap, protocol_id, liquidity_layer_model::new_lending_protocol_type(), sc.ctx());
 
     ts::return_shared(layer);
     sc.return_to_sender(admin_cap);
@@ -108,7 +109,7 @@ fun deposit_liquidity<T>(sc: &mut Scenario, protocol_id: ID, payload: Balance<T>
     let mut layer = sc.take_shared<LiquidityLayer>();
     let clock = sc.take_shared<Clock>();
 
-    layer.deposit<T>(protocol_id, payload, &clock, sc.ctx());
+    liquidity_layer::deposit<T>(&mut layer, protocol_id, payload, &clock, sc.ctx());
 
     ts::return_shared(layer);
     ts::return_shared(clock);
@@ -121,7 +122,7 @@ fun withdraw_liquidity<T>(sc: &mut Scenario, protocol_id: ID, amount: u64, sende
     let mut layer = sc.take_shared<LiquidityLayer>();
     let clock = sc.take_shared<Clock>();
 
-    let withdrawn_balance = layer.withdraw<T>(protocol_id, amount, &clock, sc.ctx());
+    let withdrawn_balance = liquidity_layer::withdraw<T>(&mut layer, protocol_id, amount, &clock, sc.ctx());
 
     ts::return_shared(layer);
     ts::return_shared(clock);

@@ -8,9 +8,9 @@ use sui::clock::{Self, Clock};
 
 use sui::test_scenario::{Self as ts, Scenario};
 
-use nawhal::account_ds::AccountRegistry;
+use nawhal::account_ds::{Self, AccountRegistry};
 
-use nawhal::account;
+// use nawhal::account;
 
 use nawhal::liquidity_layer;
 
@@ -85,7 +85,7 @@ public fun register_user_for_testing(
     let mut registry = sc.take_shared<AccountRegistry>();
     let clock = sc.take_shared<Clock>();
 
-    let account_id = account::create_account_and_register(&mut registry, name, &clock, sc.ctx());
+    let account_id = account_ds::create_account_and_register(&mut registry, name, &clock, sc.ctx());
 
     ts::return_shared(registry);
     ts::return_shared(clock);
