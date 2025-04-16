@@ -55,7 +55,8 @@ public fun deposit<T>(self: &mut LiquidityLayer, protocol_id: ID, payload: Balan
         self.check_protocol_asset_type_match(&protocol_id, &asset_type);
 
         let deposit_value = payload.value();
-        self.increment_protocol_amount(protocol_id, deposit_value);
+        self.increment_protocol_amount<T>(protocol_id, deposit_value);
+
         self.add_asset_to_vault_balance<T>(payload);
 
         // Emit protocol deposited event
@@ -79,27 +80,10 @@ public fun withdraw<T>(self: &mut LiquidityLayer, protocol_id: ID, amount: u64, 
 
     assert!(self.get_protocol_amount(&protocol_id) >= amount, EProtocolInsufficientBalance);
     
-    self.decrement_protocol_amount(protocol_id, amount);
-
-    // Get the vault ID using the asset type
-    // let liquidity_vault_id = self.asset_types.get(&asset_type);
-    // let liquidity_vault = self.liquidity_vaults.borrow_mut<ID, LiquidityVault<T>>(*liquidity_vault_id);
-    // let withdrawn_balance = liquidity_vault.balance.split(amount);
+    self.decrement_protocol_amount<T>(protocol_id, amount);
 
     let current_epoch = ctx.epoch();
     let withdrawn_balance = self.withdraw_from_liquidity_vault<T>( amount, current_epoch);
-
-
-    // // TODO: Rate limiting for 1 epoch(1 day)
-    // let vault_config = &mut liquidity_vault.config;
-    // if (vault_config.latest_epoch != current_epoch) {
-    //     vault_config.latest_epoch = current_epoch;
-    //     vault_config.latest_epoch_amount = amount;
-    // } else {
-    //     vault_config.latest_epoch_amount = vault_config.latest_epoch_amount + amount;
-    // };
-
-    // liquidity_layer_model::check_vault_rate_limiting(vault_config);
 
     // Emit protocol withdrawn event
     liquidity_event::emit_protocol_withdrawn_event(self.layer_id(), protocol_id, amount, clock.timestamp_ms(), current_epoch);

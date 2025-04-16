@@ -30,7 +30,7 @@ fun test_liquidity_layer_main_flow_should_work() {
     // Check if the asset type is registered
     check_liquidity_layer_status(sc, liquidity_layer_model::new_active_liquidity_status(), alice());
 
-    check_asset_vault_registered<TSUI>(sc, 0, alice());
+    check_asset_vault_balance<TSUI>(sc, 0, 0, 0, 0, 0, alice());
 
     // Register a new protocol
     let protocol_uid = object::new(sc.ctx());
@@ -47,7 +47,7 @@ fun test_liquidity_layer_main_flow_should_work() {
 
     deposit_liquidity(sc, protocol_id, deposit_payload.into_balance(), alice());
     
-    check_asset_vault_balance<TBTC>(sc, 1_000_000_000, alice());
+    check_asset_vault_balance<TBTC>(sc, 1_000_000_000, 1_000_000_000, 0, 1_000_000_000, 0, alice());
 
     // Withdraw liquidity
     let withdraw_amount = 500_000_000;
@@ -55,7 +55,7 @@ fun test_liquidity_layer_main_flow_should_work() {
 
     assert!(withdrawn_balance.value() == withdraw_amount, 0);
 
-    check_asset_vault_balance<TBTC>(sc, 1_000_000_000 - withdraw_amount, alice());
+    check_asset_vault_balance<TBTC>(sc, 1_000_000_000 - withdraw_amount, 1_000_000_000 - withdraw_amount, 0, 1_000_000_000, withdraw_amount, alice());
 
     tu::destroy(protocol_uid);
     tu::destroy(withdrawn_balance);
@@ -141,26 +141,19 @@ fun check_liquidity_layer_status(sc: &mut Scenario, exptected_status: LiquidityS
     ts::return_shared(layer);
 }
 
-// Check the asset vault registered
-fun check_asset_vault_registered<T>(sc: &mut Scenario, expected_value: u64, sender: address) {
-    sc.next_tx(sender);
-
-    let layer = sc.take_shared<LiquidityLayer>();
-
-    assert!(layer.get_asset_balance<T>() == expected_value, 0);
-
-    ts::return_shared(layer);
-}
-
 // Check the asset vault balance
-fun check_asset_vault_balance<T>(sc: &mut Scenario, expected_value: u64, sender: address) {
+fun check_asset_vault_balance<T>(sc: &mut Scenario, expected_cash_balance: u64, total_deposits: u64, total_collateral: u64, expected_total_in: u64, expected_total_out: u64, sender: address) {
     sc.next_tx(sender);
 
     let layer = sc.take_shared<LiquidityLayer>();
     
-    let balance_value = layer.get_asset_balance<T>();
+    let balance_value = layer.vault_cash_balance<T>();
 
-    assert!(balance_value == expected_value, 0);
+    assert!(balance_value == expected_cash_balance, 0);
+    assert!(layer.total_deposits<T>() == total_deposits, 0);
+    assert!(layer.total_collateral<T>() == total_collateral, 0);
+    assert!(layer.total_in<T>() == expected_total_in, 0);
+    assert!(layer.total_out<T>() == expected_total_out, 0);
 
     ts::return_shared(layer);
 }

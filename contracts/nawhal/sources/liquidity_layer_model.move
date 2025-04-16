@@ -38,12 +38,28 @@ public struct LiquidityLayer has key {
     // Swap price TODO:
 }
 
+/// A Vault like ERC-4626 standard.
+/// `total_deposits` + `total_collateral` should be equal to `cash.value()` + `total_borrows`
+/// `cumulative_in` - `cumulative_out` should be equal to `cash.value()`
 public struct LiquidityVault<phantom T> has key, store {
     id: UID,
-    balance: Balance<T>,
+    // Currently available balance of the Vault
+    cash: Balance<T>,
+    //  Interest-bearing deposits
+    total_deposits: u64,
+    // Collateral with no interest
+    total_collateral: u64,
+    // Stores the total amount of borrows, not including withdraws
+    total_borrows: u64,
+    // The cumulative amount going into the Vault, has been growing.
+    cumulative_in: u64,
+    // The cumulative amount going out of the Vault, has been growing.
+    cumulative_out: u64,
+
     borrow_status: BorrowStatus,
     withdraw_status: WithdrawStatus,
     config: VaultConfig,
+    
     created_at_ms: u64,
     created_at_epoch: u64,
 }
@@ -100,7 +116,12 @@ public fun new_liquidity_layer(ctx: &mut TxContext): LiquidityLayer {
 public fun new_liquidity_vault<T>(ctx: &mut TxContext): LiquidityVault<T> {
     LiquidityVault {
         id: object::new(ctx),
-        balance: balance::zero<T>(),
+        cash: balance::zero<T>(),
+        total_deposits: 0,
+        total_collateral: 0,
+        total_borrows: 0,
+        cumulative_in: 0,
+        cumulative_out: 0,
         borrow_status: BorrowStatus::Borrowable,
         withdraw_status: WithdrawStatus::Withdrawable,
         config: new_vault_config(DEFAULT_RATE_LIMITING_IN_DAY),
@@ -216,20 +237,62 @@ public fun check_vault_rate_limiting(vault_config: &VaultConfig) {
 }
 
 // ------- Getters ------- //
+/// Get the liquidity layer id
 public fun layer_id(self: &LiquidityLayer): ID {
     object::id(self)
 }
 
+/// Get the liquidity layer status
 public fun layer_status(self: &LiquidityLayer): LiquidityStatus {
     self.status
 }
 
+/// Get the total_deposits of the given asset type
+public fun total_deposits<T>(self: &LiquidityLayer): u64 {
+    let liquidity_vault_id = self.vault_id_of_asset<T>();
+    self.liquidity_vaults
+        .borrow<ID, LiquidityVault<T>>(liquidity_vault_id)
+        .total_deposits
+}
+
+/// Get the total_collateral of the given asset type
+public fun total_collateral<T>(self: &LiquidityLayer): u64 {
+    let liquidity_vault_id = self.vault_id_of_asset<T>();
+    self.liquidity_vaults
+        .borrow<ID, LiquidityVault<T>>(liquidity_vault_id)
+        .total_collateral
+}
+
+/// Get the total_in of the given asset type
+public fun total_in<T>(self: &LiquidityLayer): u64 {
+    let liquidity_vault_id = self.vault_id_of_asset<T>();
+    self.liquidity_vaults
+        .borrow<ID, LiquidityVault<T>>(liquidity_vault_id)
+        .cumulative_in
+}
+
+/// Get the total_out of the given asset type
+public fun total_out<T>(self: &LiquidityLayer): u64 {
+    let liquidity_vault_id = self.vault_id_of_asset<T>();
+    self.liquidity_vaults
+        .borrow<ID, LiquidityVault<T>>(liquidity_vault_id)
+        .cumulative_out
+}
+
+/// Get the LiquidityVault id of the given asset type
+public fun vault_id_of_asset<T>(self: &LiquidityLayer): ID {
+    let asset_type = type_name::get<T>();
+    *self.asset_types.get(&asset_type)
+}
+
+/// Get the vault id
 public fun vault_id<T>(self: &LiquidityVault<T>): ID {
     object::id(self)
 }
 
-public fun vault_balance<T>(self: &LiquidityVault<T>): u64 {
-    self.balance.value()
+/// Get the cash value
+public fun cash_value<T>(self: &LiquidityVault<T>): u64 {
+    self.cash.value()
 }
 
 /// Get the protocol amount
@@ -260,20 +323,25 @@ public fun is_active(self: &LiquidityLayer): bool {
 
 /// Borrow the asset balance of the given asset type.
 public fun borrow_vault<T>(self: &LiquidityLayer): &LiquidityVault<T> {
-    let asset_type = type_name::get<T>();
-    let liquidity_vault_id = self.asset_types.get(&asset_type);
-    self.liquidity_vaults.borrow<ID, LiquidityVault<T>>(*liquidity_vault_id)
+    let liquidity_vault_id = self.vault_id_of_asset<T>();
+    self.liquidity_vaults.borrow<ID, LiquidityVault<T>>(liquidity_vault_id)
+}
+
+/// Borrow mut the vault of the given asset type.
+public(package) fun borrow_vault_mut<T>(self: &mut LiquidityLayer): &mut LiquidityVault<T> {
+    let liquidity_vault_id = self.vault_id_of_asset<T>();
+    self.liquidity_vaults.borrow_mut<ID, LiquidityVault<T>>(liquidity_vault_id)
 }
 
 /// Borrow mut the protocol config of the given protocol id.
-public fun get_protocol_mut(self: &mut LiquidityLayer, protocol_id: &ID): &mut ProtocolConfig {
+public(package) fun get_protocol_mut(self: &mut LiquidityLayer, protocol_id: &ID): &mut ProtocolConfig {
     self.protocols.get_mut(protocol_id)
 }
 
 /// Get the asset balance of the given asset type.
-public fun get_asset_balance<T>(self: &LiquidityLayer): u64 {
+public fun vault_cash_balance<T>(self: &LiquidityLayer): u64 {
     let liquidity_vault = self.borrow_vault<T>();
-    liquidity_vault.balance.value()
+    liquidity_vault.cash.value()
 }
 
 // ------- Setters ------- //
@@ -302,17 +370,24 @@ public(package) fun add_asset_to_vault_balance<T>(self: &mut LiquidityLayer, pay
     let liquidity_vault_id = self.asset_types.get(&asset_type);
     let liquidity_vault = self.liquidity_vaults.borrow_mut<ID, LiquidityVault<T>>(*liquidity_vault_id);
     
-    liquidity_vault.balance.join(payload);
+    liquidity_vault.cash.join(payload);
 }
 
 /// Increment the protocol amount
-public(package) fun increment_protocol_amount(self: &mut LiquidityLayer, protocol_id: ID, amount: u64) {
+public(package) fun increment_protocol_amount<T>(self: &mut LiquidityLayer, protocol_id: ID, amount: u64) {
+    let vault = self.borrow_vault_mut<T>();
+    vault.cumulative_in = vault.cumulative_in + amount;
+    vault.total_deposits = vault.total_deposits + amount;
+
     let protocol_config = self.get_protocol_mut(&protocol_id);
     protocol_config.amount = protocol_config.amount + amount;
 }
 
 /// Decrement the protocol amount
-public(package) fun decrement_protocol_amount(self: &mut LiquidityLayer, protocol_id: ID, amount: u64) {
+public(package) fun decrement_protocol_amount<T>(self: &mut LiquidityLayer, protocol_id: ID, amount: u64) {
+    let vault = self.borrow_vault_mut<T>();
+    vault.cumulative_out = vault.cumulative_out + amount;
+    vault.total_deposits = vault.total_deposits - amount;
     let protocol_config = self.get_protocol_mut(&protocol_id);
     protocol_config.amount = protocol_config.amount - amount;
 }
@@ -322,7 +397,7 @@ public(package) fun withdraw_from_liquidity_vault<T>(self: &mut LiquidityLayer, 
     let liquidity_vault_id = self.asset_types.get(&type_name::get<T>());
     let liquidity_vault = self.liquidity_vaults.borrow_mut<ID, LiquidityVault<T>>(*liquidity_vault_id);
 
-    let withdrawn_balance = liquidity_vault.balance.split(amount);
+    let withdrawn_balance = liquidity_vault.cash.split(amount);
 
     // TODO: Rate limiting for 1 epoch(1 day)
     let vault_config = &mut liquidity_vault.config;
@@ -356,7 +431,12 @@ public fun destroy_liquidity_layer_for_testing(layer: LiquidityLayer) {
 public fun destroy_liquidity_vault_for_testing<T>(vault: LiquidityVault<T>) {
     let LiquidityVault {
         id,
-        balance,
+        cash,
+        total_borrows: _,
+        total_deposits: _,
+        total_collateral: _,
+        cumulative_in: _,
+        cumulative_out: _,
         borrow_status: _,
         withdraw_status: _,
         config: _,
@@ -365,7 +445,7 @@ public fun destroy_liquidity_vault_for_testing<T>(vault: LiquidityVault<T>) {
     } = vault;
 
     id.delete();
-    balance.destroy_for_testing();
+    cash.destroy_for_testing();
 }
 
 // ------- Unit tests ------- //
@@ -404,7 +484,7 @@ fun test_create_liquidity_vault_should_work() {
 
     let vault = new_liquidity_vault<SUI>(&mut ctx);
 
-    assert!(vault.balance.value() == 0, 0);
+    assert!(vault.cash_value() == 0, 0);
 
     destroy_liquidity_vault_for_testing<SUI>(vault);
 }

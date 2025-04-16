@@ -84,7 +84,7 @@ fun check_state_after_op<T>(
     // Check Liquidity Layer state
     sc.next_tx(sender);
     let layer = sc.take_shared<LiquidityLayer>();
-    assert!(layer.get_asset_balance<T>() == expected_layer_balance, 0);
+    assert!(layer.vault_cash_balance<T>() == expected_layer_balance, 0);
     let protocol_obj = sc.take_shared<LendingProtocol<T>>();
     let protocol_id = protocol_obj.protocol_id();
     assert!(layer.get_protocol_amount(&protocol_id) == expected_layer_balance, 0); 
