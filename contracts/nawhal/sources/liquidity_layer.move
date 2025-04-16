@@ -91,6 +91,9 @@ public fun withdraw<T>(self: &mut LiquidityLayer, protocol_id: ID, amount: u64, 
     withdrawn_balance
 }
 
+// /// Borrowing of funds from the treasury and the need to pay the corresponding interest on the borrowed funds 
+
+
 // ------- Governance functions ------- //
 /// Register a new asset vault to the LiquidityLayer.
 /// 
@@ -101,12 +104,12 @@ public fun withdraw<T>(self: &mut LiquidityLayer, protocol_id: ID, amount: u64, 
 /// 
 /// # Ignores
 /// * If the asset type is already registered.
-public(package) fun register_asset_vault<T>(self: &mut LiquidityLayer, ctx: &mut TxContext) {
+public(package) fun register_asset_vault<T>(self: &mut LiquidityLayer, interest_rate_bps: u64, ctx: &mut TxContext) {
     let asset_type = type_name::get<T>();
     liquidity_layer_model::check_liquidity_layer_is_active(self);
     liquidity_layer_model::check_asset_type_not_exists(self, &asset_type);
 
-    let liquidity_vault = liquidity_layer_model::new_liquidity_vault<T>(ctx);
+    let liquidity_vault = liquidity_layer_model::new_liquidity_vault<T>(interest_rate_bps, ctx);
             
     let liquidity_vault_id = liquidity_vault.vault_id();
 
@@ -118,8 +121,8 @@ public(package) fun register_asset_vault<T>(self: &mut LiquidityLayer, ctx: &mut
 }
 
 /// Register a new asset vault to the LiquidityLayer by AdminCap
-public fun register_vault_by_admin_cap<T>(self: &mut LiquidityLayer, _admin_cap: &AdminCap, ctx: &mut TxContext) {
-    register_asset_vault<T>(self, ctx);
+public fun register_vault_by_admin_cap<T>(self: &mut LiquidityLayer, _admin_cap: &AdminCap, interest_rate_bps: u64, ctx: &mut TxContext) {
+    register_asset_vault<T>(self, interest_rate_bps, ctx);
 }
 
 /// Register a new protocol to the LiquidityLayer

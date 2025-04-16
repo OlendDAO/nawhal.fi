@@ -80,6 +80,8 @@ public enum ProtocolType has copy, drop, store {
 public struct VaultConfig has copy, drop, store {
     latest_epoch: u64,
     latest_epoch_amount: u64,
+    // Interest rate
+    interest_rate_bps: u64,
     // a epoch is 1 day in Sui
     rate_limiting_in_epoch: u64,
 }
@@ -113,7 +115,7 @@ public fun new_liquidity_layer(ctx: &mut TxContext): LiquidityLayer {
 }
 
 /// New a new LiquidityVault
-public fun new_liquidity_vault<T>(ctx: &mut TxContext): LiquidityVault<T> {
+public fun new_liquidity_vault<T>(interest_rate_bps: u64, ctx: &mut TxContext): LiquidityVault<T> {
     LiquidityVault {
         id: object::new(ctx),
         cash: balance::zero<T>(),
@@ -124,7 +126,7 @@ public fun new_liquidity_vault<T>(ctx: &mut TxContext): LiquidityVault<T> {
         cumulative_out: 0,
         borrow_status: BorrowStatus::Borrowable,
         withdraw_status: WithdrawStatus::Withdrawable,
-        config: new_vault_config(DEFAULT_RATE_LIMITING_IN_DAY),
+        config: new_vault_config(interest_rate_bps, DEFAULT_RATE_LIMITING_IN_DAY),
         created_at_ms: ctx.epoch(),
         created_at_epoch: ctx.epoch(),
     }
@@ -141,10 +143,11 @@ public fun new_paused_liquidity_status(): LiquidityStatus {
 }
 
 /// New a VaultConfig
-public fun new_vault_config(rate_limiting_in_day: u64): VaultConfig {
+public fun new_vault_config(interest_rate_bps: u64, rate_limiting_in_day: u64): VaultConfig {
     VaultConfig {     
         latest_epoch_amount: 0,
         latest_epoch: 0,
+        interest_rate_bps,
         rate_limiting_in_epoch: rate_limiting_in_day,
     }
 }
@@ -482,7 +485,8 @@ fun test_create_liquidity_vault_should_work() {
 
     let mut ctx = tx_context::dummy();
 
-    let vault = new_liquidity_vault<SUI>(&mut ctx);
+    let interest_rate_bps = 10000;
+    let vault = new_liquidity_vault<SUI>(interest_rate_bps, &mut ctx);
 
     assert!(vault.cash_value() == 0, 0);
 

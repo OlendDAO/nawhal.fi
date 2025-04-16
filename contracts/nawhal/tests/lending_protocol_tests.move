@@ -17,15 +17,15 @@ use nawhal::common_tests::{Self as ct, alice, TBTC};
 // === Helper Functions ===
 
 // Setup: Initializes LiquidityLayer, AccountRegistry, and registers the LendingProtocol
-fun setup_lending_protocol<T>(sc: &mut Scenario, sender: address) {
+fun setup_lending_protocol<T>(sc: &mut Scenario, sender: address, supply_cap: u64) {
     ct::init_liquidity_layer_for_testing(sc, sender);
-    ct::register_asset_vault_for_testing<T>(sc, sender);
+    ct::register_asset_vault_for_testing<T>(sc, sender, 10000);
     ct::init_account_registry_for_testing(sc, sender);
 
     sc.next_tx(sender);
     let mut layer = sc.take_shared<LiquidityLayer>();
     let admin_cap = sc.take_from_sender<AdminCap>();
-    lending_protocol::register_lending_protocol<T>(&mut layer, &admin_cap, sc.ctx());
+    lending_protocol::register_lending_protocol<T>(&mut layer, &admin_cap, supply_cap, sc.ctx());
     ts::return_shared(layer);
     sc.return_to_sender(admin_cap);
 }
@@ -112,7 +112,7 @@ fun test_lending_protocol_deposit() {
     let sc = &mut sc0;
 
     ct::create_clock_and_share(sc);
-    setup_lending_protocol<TBTC>(sc, alice());
+    setup_lending_protocol<TBTC>(sc, alice(), 1_000_000_000_000_000_000);
 
     let deposit_amount = 1_000_000_000;
     deposit_helper<TBTC>(sc, deposit_amount, alice());
@@ -129,7 +129,7 @@ fun test_lending_protocol_withdraw() {
     let sc = &mut sc0;
 
     ct::create_clock_and_share(sc);
-    setup_lending_protocol<TBTC>(sc, alice());
+    setup_lending_protocol<TBTC>(sc, alice(), 1_000_000_000_000_000_000);
 
     let deposit_amount = 1_000_000_000;
     deposit_helper<TBTC>(sc, deposit_amount, alice());
@@ -154,7 +154,7 @@ fun test_lending_protocol_withdraw_insufficient() {
     let sc = &mut sc0;
 
     ct::create_clock_and_share(sc);
-    setup_lending_protocol<TBTC>(sc, alice());
+    setup_lending_protocol<TBTC>(sc, alice(), 1_000_000_000_000_000_000);
 
     let deposit_amount = 1_000_000_000;
     deposit_helper<TBTC>(sc, deposit_amount, alice());
@@ -165,5 +165,20 @@ fun test_lending_protocol_withdraw_insufficient() {
 
     // Cleanup (will likely not be reached)
     tu::destroy(withdrawn_balance);
+    sc0.end();
+}
+
+#[test, expected_failure(abort_code = lending_protocol::ESupplyCapReached)]
+/// Test depositing more assets than the supply cap
+fun test_lending_protocol_deposit_exceeds_supply_cap() {
+    let mut sc0 = ts::begin(alice());
+    let sc = &mut sc0;
+
+    ct::create_clock_and_share(sc);
+    setup_lending_protocol<TBTC>(sc, alice(), 1_000_000_000_000_000_000);
+    
+    let deposit_amount = 1_000_000_000_000_000_000 + 1;
+    deposit_helper<TBTC>(sc, deposit_amount, alice());
+    
     sc0.end();
 }

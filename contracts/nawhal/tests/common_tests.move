@@ -107,11 +107,11 @@ public fun init_account_registry_for_testing(sc: &mut Scenario, sender: address)
 }
 
 // Register an asset vault in LiquidityLayer for testing
-public fun register_asset_vault_for_testing<T>(sc: &mut Scenario, sender: address) {
+public fun register_asset_vault_for_testing<T>(sc: &mut Scenario, sender: address, interest_rate_bps: u64) {
     sc.next_tx(sender);
     let mut layer = sc.take_shared<LiquidityLayer>();
     let admin_cap = sc.take_from_sender<AdminCap>();
-    liquidity_layer::register_vault_by_admin_cap<T>(&mut layer, &admin_cap, sc.ctx());
+    liquidity_layer::register_vault_by_admin_cap<T>(&mut layer, &admin_cap, interest_rate_bps, sc.ctx());
     ts::return_shared(layer);
     sc.return_to_sender(admin_cap);
 }

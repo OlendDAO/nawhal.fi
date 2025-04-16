@@ -25,7 +25,7 @@ fun test_liquidity_layer_main_flow_should_work() {
     common_tests::init_liquidity_layer_for_testing(sc, alice());
 
     // Register a new asset type
-    register_asset_vault<TSUI>(sc, alice()); 
+    register_asset_vault<TSUI>(sc, alice(), 10000); 
 
     // Check if the asset type is registered
     check_liquidity_layer_status(sc, liquidity_layer_model::new_active_liquidity_status(), alice());
@@ -37,7 +37,7 @@ fun test_liquidity_layer_main_flow_should_work() {
     let protocol_id = object::uid_to_inner(&protocol_uid);
     
     // Deposit liquidity
-    register_asset_vault<TBTC>(sc, alice());
+    register_asset_vault<TBTC>(sc, alice(), 10000);
 
     register_protocol<TBTC>(sc, protocol_id, alice());
 
@@ -72,19 +72,19 @@ fun test_register_liquidity_vault_should_work() {
 
     let mut layer = liquidity_layer_model::new_liquidity_layer(&mut ctx);
 
-    liquidity_layer::register_asset_vault<TSUI>(&mut layer, &mut ctx);
+    liquidity_layer::register_asset_vault<TSUI>(&mut layer, 10000, &mut ctx);
 
     assert!(liquidity_layer_model::asset_type_amount(&layer) == 1, 0);
 
     tu::destroy(layer);
 }
 
-public fun register_asset_vault<T>(sc: &mut Scenario, sender: address) {
+public fun register_asset_vault<T>(sc: &mut Scenario, sender: address, interest_rate_bps: u64) {
     sc.next_tx(sender);
 
     let mut layer = sc.take_shared<LiquidityLayer>();
 
-    liquidity_layer::register_asset_vault<T>(&mut layer, sc.ctx());
+    liquidity_layer::register_asset_vault<T>(&mut layer, interest_rate_bps, sc.ctx());
 
     ts::return_shared(layer);
 }

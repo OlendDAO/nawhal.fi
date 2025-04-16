@@ -20,11 +20,17 @@ use nawhal::account_ds::{AccountProfile, AccountRegistry, AccountProfileCap};
 
 // ------- Errors ------- //
 const EInsufficientBalance: u64 = 20001;
+const ESupplyCapReached: u64 = 20002;
+
+// ------- Constants ------- //
+// const DEFAULT_SUPPLY_CAP: u64 = 1_000_000_000_000_000_000;
 
 // ------- structs ------- //
 /// Lending protocol is a protocol that allows users to deposit and withdraw assets
 public struct LendingProtocol<phantom T> has key, store {
     id: UID,
+    supply: u64,
+    supply_cap: u64,
     // Stores (account_id, account_profile) pair
     stakers: Table<ID, AccountProfile>,
     created_at_ms: u64,
@@ -50,6 +56,9 @@ public fun deposit<T>(
     let profile = registry.borrow_or_create_profile(clock, ctx);
     let protocol_id = self.protocol_id();
 
+    self.supply = self.supply + payload.value();
+
+    assert!(self.supply <= self.supply_cap, ESupplyCapReached);
     profile.add_staking_value<T>(protocol_id, payload.value(), clock.timestamp_ms());
 
     liquidity_layer::deposit(liquidity_layer, protocol_id, payload.into_balance(), clock, ctx);
@@ -84,8 +93,8 @@ public fun withdraw<T>(
 
 /// ------- Governance ------- //
 /// Register a new lending protocol to LiquidityLayer
-public fun register_lending_protocol<T>(liquidity_layer: &mut LiquidityLayer, admin_cap: &AdminCap, ctx: &mut TxContext) {
-    let lending_protocol = new_lending_protocol<T>(ctx);
+public fun register_lending_protocol<T>(liquidity_layer: &mut LiquidityLayer, admin_cap: &AdminCap, supply_cap: u64, ctx: &mut TxContext) {
+    let lending_protocol = new_lending_protocol<T>(supply_cap, ctx);
 
     liquidity_layer::register_protocol<T>(liquidity_layer, admin_cap, lending_protocol.protocol_id(), new_lending_protocol_type(), ctx);
     
@@ -94,9 +103,11 @@ public fun register_lending_protocol<T>(liquidity_layer: &mut LiquidityLayer, ad
 
 // ------- new structs ------- //
 /// New a new LendingProtocol
-public fun new_lending_protocol<T>(ctx: &mut TxContext): LendingProtocol<T> {
+public fun new_lending_protocol<T>(supply_cap: u64, ctx: &mut TxContext): LendingProtocol<T> {
     LendingProtocol {
         id: object::new(ctx),
+        supply: 0,
+        supply_cap,
         stakers: table::new(ctx),
         created_at_ms: ctx.epoch_timestamp_ms(),
         created_at_epoch: ctx.epoch(),
