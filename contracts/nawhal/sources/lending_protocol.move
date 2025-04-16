@@ -1,4 +1,3 @@
-
 //! The Lending Protocol is a module that manages the lending business of the protocol.
 //! It is responsible for:
 //! - Stake assets to the protocol
@@ -78,7 +77,7 @@ public fun withdraw<T>(
 
     check_stake_total_amount_greater_than_or_equal_to_amount(stake_total_amount, amount);
 
-    profile.sub_staking_value(protocol_id, stake_total_amount);
+    profile.sub_staking_value(protocol_id, amount);
 
     liquidity_layer::withdraw(liquidity_layer, protocol_id, amount, clock, ctx)
 }

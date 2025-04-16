@@ -1,18 +1,18 @@
-
 #[test_only]
 module nawhal::common_tests;
 
 use std::ascii::String;
 
 use sui::clock::{Self, Clock};
-
 use sui::test_scenario::{Self as ts, Scenario};
 
 use nawhal::account_ds::{Self, AccountRegistry};
+use nawhal::account;
+use nawhal::liquidity_layer_model::LiquidityLayer;
+use nawhal::liquidity_layer;
+use nawhal::admin::AdminCap;
 
 // use nawhal::account;
-
-use nawhal::liquidity_layer;
 
 /// Coins for testing
 public struct TBTC has drop { }
@@ -97,4 +97,21 @@ public fun init_liquidity_layer_for_testing(sc: &mut Scenario, sender: address) 
     sc.next_tx(sender);
 
     liquidity_layer::init_for_testing(sc.ctx());
+}
+
+// Initialize a new AccountRegistry for testing
+public fun init_account_registry_for_testing(sc: &mut Scenario, sender: address) {
+    sc.next_tx(sender);
+
+    account::init_for_testing(sc.ctx());
+}
+
+// Register an asset vault in LiquidityLayer for testing
+public fun register_asset_vault_for_testing<T>(sc: &mut Scenario, sender: address) {
+    sc.next_tx(sender);
+    let mut layer = sc.take_shared<LiquidityLayer>();
+    let admin_cap = sc.take_from_sender<AdminCap>();
+    liquidity_layer::register_vault_by_admin_cap<T>(&mut layer, &admin_cap, sc.ctx());
+    ts::return_shared(layer);
+    sc.return_to_sender(admin_cap);
 }
