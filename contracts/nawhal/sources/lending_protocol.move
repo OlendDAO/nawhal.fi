@@ -16,7 +16,7 @@ use sui::clock::Clock;
 use nawhal::admin::AdminCap;
 use nawhal::liquidity_layer_model::{LiquidityLayer, new_lending_protocol_type};
 use nawhal::liquidity_layer;
-use nawhal::account_ds::{AccountProfile, AccountRegistry, AccountProfileCap};
+use nawhal::account_ds::{Self, AccountProfile, AccountRegistry, AccountProfileCap};
 
 // ------- Errors ------- //
 const EInsufficientBalance: u64 = 20001;
@@ -45,7 +45,7 @@ public struct LendingProtocol<phantom T> has key, store {
 
 // ------- Logic ------- //
 /// Deposit assets to the protocol
-public fun deposit<T>(
+public fun deposit<T, YT>(
     self: &mut LendingProtocol<T>, 
     liquidity_layer: &mut LiquidityLayer, 
     registry: &mut AccountRegistry, 
@@ -53,19 +53,22 @@ public fun deposit<T>(
     clock: &Clock, 
     ctx: &mut TxContext
 ) {
-    let profile = registry.borrow_or_create_profile(clock, ctx);
+    
     let protocol_id = self.protocol_id();
 
     self.supply = self.supply + payload.value();
 
     assert!(self.supply <= self.supply_cap, ESupplyCapReached);
-    profile.add_staking_value<T>(protocol_id, payload.value(), clock.timestamp_ms());
+    
+    let asset_amount = payload.value();
+    let shares = liquidity_layer::deposit(liquidity_layer, protocol_id, payload.into_balance(), clock, ctx);
 
-    liquidity_layer::deposit(liquidity_layer, protocol_id, payload.into_balance(), clock, ctx);
+    let profile = registry.borrow_or_create_profile(clock, ctx);
+    profile.add_staking_shares<T, YT>(protocol_id, shares, asset_amount, clock.timestamp_ms());
 }
 
 /// Withdraw assets from the protocol
-public fun withdraw<T>(
+public fun withdraw<T, YT>(
     self: &mut LendingProtocol<T>, 
     liquidity_layer: &mut LiquidityLayer, 
     registry: &mut AccountRegistry, 
@@ -82,13 +85,15 @@ public fun withdraw<T>(
 
     let profile = registry.borrow_account_mut(cap.account_of());
 
-    let stake_total_amount = profile.stake_total_amount(&protocol_id);
+    let stake_total_amount = profile.stake_total_amount<T, YT>(protocol_id);
 
-    check_stake_total_amount_greater_than_or_equal_to_amount(stake_total_amount, amount);
+    let shares = account_ds::take_staking_shares<T, YT>( profile, protocol_id, amount);
 
-    profile.sub_staking_value(protocol_id, amount);
+    check_stake_total_amount_greater_than_or_equal_to_amount(stake_total_amount, shares.value());
 
-    liquidity_layer::withdraw(liquidity_layer, protocol_id, amount, clock, ctx)
+    profile.sub_staking_value<T, YT>(protocol_id, shares.value());
+
+    liquidity_layer::withdraw<T, YT>(liquidity_layer, protocol_id, shares, clock, ctx)
 }
 
 /// ------- Governance ------- //

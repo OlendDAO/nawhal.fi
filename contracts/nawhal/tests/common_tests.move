@@ -3,14 +3,18 @@ module nawhal::common_tests;
 
 use std::ascii::String;
 
+use sui::balance::{Balance};
 use sui::clock::{Self, Clock};
+use sui::coin::TreasuryCap;
 use sui::test_scenario::{Self as ts, Scenario};
 
-use nawhal::account_ds::{Self, AccountRegistry};
+use nawhal::account_ds::{Self, AccountRegistry, AccountProfileCap};
 use nawhal::account;
 use nawhal::liquidity_layer_model::LiquidityLayer;
 use nawhal::liquidity_layer;
 use nawhal::admin::AdminCap;
+use nawhal::ytbtc;
+use nawhal::ytsui;
 
 // use nawhal::account;
 
@@ -74,6 +78,13 @@ public fun clock_timestamp_ms(sc: &mut Scenario): u64 {
     timestamp
 }
 
+/// Init ytbtc and ytsui for testing
+public fun init_ytbtc_and_ytsui_for_testing(sc: &mut Scenario, sender: address) {
+    sc.next_tx(sender);
+    ytbtc::init_for_testing(sc.ctx());
+    ytsui::init_for_testing(sc.ctx());
+}
+
 /// Register a user to the registry
 public fun register_user_for_testing(
     sc: &mut Scenario,
@@ -107,11 +118,27 @@ public fun init_account_registry_for_testing(sc: &mut Scenario, sender: address)
 }
 
 // Register an asset vault in LiquidityLayer for testing
-public fun register_asset_vault_for_testing<T>(sc: &mut Scenario, sender: address, interest_rate_bps: u64) {
+public fun register_asset_vault_for_testing<T, YT>(sc: &mut Scenario, sender: address) {
     sc.next_tx(sender);
     let mut layer = sc.take_shared<LiquidityLayer>();
     let admin_cap = sc.take_from_sender<AdminCap>();
-    liquidity_layer::register_vault_by_admin_cap<T>(&mut layer, &admin_cap, interest_rate_bps, sc.ctx());
+    let lp_treasury = sc.take_from_sender<TreasuryCap<YT>>();
+    let vault_cap = liquidity_layer::register_vault_by_admin_cap<T, YT>(&mut layer, &admin_cap, lp_treasury, sc.ctx());
     ts::return_shared(layer);
     sc.return_to_sender(admin_cap);
+    transfer::public_transfer(vault_cap, sender);
+}
+
+// get shares for testing
+public fun get_shares_for_testing<T, YT>(sc: &mut Scenario, amount: u64, sender: address, lending_protocol_id: ID): Balance<YT> {
+    sc.next_tx(sender);
+
+    let mut account_registry = sc.take_shared<AccountRegistry>();
+    let profile_cap = sc.take_from_sender<AccountProfileCap>();
+    let account_id = profile_cap.account_of();
+    let account = account_registry.borrow_account_mut(account_id);
+    let shares = account_ds::take_staking_shares<T, YT>( account, lending_protocol_id, amount);
+    ts::return_shared(account_registry);
+    sc.return_to_sender(profile_cap);
+    shares
 }

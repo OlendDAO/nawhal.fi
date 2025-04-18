@@ -6,6 +6,8 @@ module nawhal::account_ds;
 use std::ascii::String;
 use std::type_name::{Self, TypeName};
 
+use sui::bag::{Self, Bag};
+use sui::balance::Balance;
 use sui::clock::Clock;
 use sui::event;
 use sui::object_table::{Self as ot, ObjectTable};
@@ -56,19 +58,21 @@ public struct AccountProfile has key, store {
     id: UID,
     name: String,
     // Store (lending_protocol_id, staking_info) pair
-    stakes: VecMap<ID, StakingInfo>,
-    // Store (pool_id, debt_info) pair
+    stakes: Bag,
+    // Store (lending_protocol_id, debt_info) pair
     debts: VecMap<ID, DebtInfo>,
     latest_updated_ms: u64,
     status: AccountProfileStatus,
 }
 
 /// The staking info of a vault
-public struct StakingInfo has store, copy, drop {
+public struct StakingInfo<phantom T, phantom YT> has store {
     lending_protocol_id: ID,
     asset_type: TypeName,
-    shares: u64,
-    total_amount: u64,
+    /// The shares after staked 
+    shares: Balance<YT>,
+    /// The total amount of the staking `T
+    total_asset_amount: u64,
     latest_updated_ms: u64,
 }
 
@@ -110,7 +114,7 @@ public fun new_profile(
     let profile = AccountProfile {
         id: object::new(ctx),
         name,
-        stakes: vec_map::empty(),
+        stakes: bag::new(ctx),
         debts: vec_map::empty(),
         latest_updated_ms: created_at_ms,
         status: AccountProfileStatus::Active,
@@ -127,17 +131,17 @@ public fun new_profile(
     (profile, cap)
 }
 
-public fun new_staking_info<T>(
+public fun new_staking_info<T, YT>(
     lending_protocol_id: ID,
-    total_amount: u64,
-    shares: u64,
+    total_asset_amount: u64,
+    shares: Balance<YT>,
     latest_updated_ms: u64,
-): StakingInfo {
+): StakingInfo<T, YT> {
     StakingInfo {
         lending_protocol_id,
         asset_type: type_name::get<T>(),
         shares,
-        total_amount,
+        total_asset_amount,
         latest_updated_ms,
     }
 }
@@ -215,42 +219,6 @@ public fun borrow_or_create_profile(registry: &mut AccountRegistry, clock: &Cloc
     registry.borrow_account_mut(account_id)
 }
 
-// /// Derivate a sub account profile for other account TODO:
-// public fun delegate_account(
-//     registry: &mut AccountRegistry,
-//     delegator: &mut AccountProfileCap,
-//     name: String,
-//     staking_value: u64,
-//     debt_value: u64,
-//     delegatee: address,
-//     ctx: &mut TxContext,
-// ): AccountProfileCap {
-
-//     let delegatee_id = registry.account_id_of(delegatee);
-
-//     if (delegatee_id.is_some()) {
-//         let delegatee_id = delegatee_id.take();
-//     } else {
-//         let (profile, cap) = new_profile(name, ctx);
-
-//         registry.add_owner(delegatee, profile.account_id());
-//         registry.add_account(profile);
-//     }
-// }
-
-/// Claim performance TODO:
-/// when user deposit assets into a vault, will gain performance
-#[allow(unused_type_parameter)]
-public fun claim<T, LPT>(
-    _registry: &mut AccountRegistry,
-    _account_cap: &AccountProfileCap,
-    _vault_id: ID,
-    _amount: u64,
-    _ctx: &mut TxContext,
-) {
-    abort 0
-}
-
 /// Add a new account profile to the registry
 /// Abort if the account already exists
 public(package) fun add_account(registry: &mut AccountRegistry, account: AccountProfile) {
@@ -268,32 +236,43 @@ public(package) fun add_owner(registry: &mut AccountRegistry, owner: address, ac
     registry.owners.add(owner, account_id);
 }
 
-/// Add the staking value
-public(package) fun add_staking_value<T>(self: &mut AccountProfile, protocol_id: ID, value: u64, latest_updated_ms: u64) {
-    // TODO: Update shares
-    let shares = 0;
-
-    if (self.stakes.contains(&protocol_id)) {
-        let stakes = self.stakes.get_mut(&protocol_id);
-        stakes.shares = shares;
-        stakes.total_amount = stakes.total_amount + value;
+/// Add the staking infos to the account profile, including shares
+public(package) fun add_staking_shares<T, YT>(
+    self: &mut AccountProfile, 
+    protocol_id: ID, 
+    shares: Balance<YT>, 
+    total_asset_amount: u64, 
+    latest_updated_ms: u64
+) {
+    if (self.stakes.contains(protocol_id)) {
+        let stakes = self.stakes.borrow_mut<ID, StakingInfo<T, YT>>(protocol_id);
+        stakes.shares.join(shares);
+        stakes.total_asset_amount = stakes.total_asset_amount + total_asset_amount;
     } else {
-        self.stakes.insert(protocol_id, new_staking_info<T>(protocol_id, value, shares, latest_updated_ms));
+        self.stakes.add(protocol_id, new_staking_info<T, YT>(protocol_id, 
+        total_asset_amount, shares, latest_updated_ms));
     }
+}
+
+/// Take shares from the staking info.
+/// Abort if the shares are less than the amount to take
+public(package) fun take_staking_shares<T, YT>(self: &mut AccountProfile, lending_protocol_id: ID, amount: u64): Balance<YT> {
+    let stakes = self.stakes.borrow_mut<ID, StakingInfo<T, YT>>(lending_protocol_id);
+    stakes.shares.split(amount)
 }
 
 /// Subtract the staking value
 /// Abort if the staking value is less than the value to subtract or the staking info does not exist
-public(package) fun sub_staking_value(self: &mut AccountProfile, vault_id: ID, value: u64) {
-    let stakes = self.stakes.get_mut(&vault_id);
+public(package) fun sub_staking_value<T, YT>(self: &mut AccountProfile, lending_protocol_id: ID, value: u64) {
+    let stakes = self.stakes.borrow_mut<ID, StakingInfo<T, YT>>(lending_protocol_id);
 
-    stakes.total_amount = stakes.total_amount - value;
+    stakes.total_asset_amount = stakes.total_asset_amount - value;
 }
 
 /// Remove staking info
 /// Abort if the staking info does not exist
-public(package) fun remove_staking_info(self: &mut AccountProfile, vault_id: ID) {
-    self.stakes.remove(&vault_id);
+public(package) fun remove_staking_info<T, YT>(self: &mut AccountProfile, lending_protocol_id: ID): StakingInfo<T, YT> {
+    self.stakes.remove(lending_protocol_id)
 }
 
 /// Add the debt value
@@ -333,16 +312,23 @@ public fun name(self: &AccountProfile): String {
 
 /// Get the staking total amount of the protocol id
 /// Returns 0 if the protocol id does not exist
-public fun stake_total_amount(self: &AccountProfile, protocol_id: &ID): u64 {
-    let stake_info = self.staking_info(protocol_id);
-
-    stake_info.map!(|info| info.total_amount).get_with_default(0)
+public fun stake_total_amount<T, YT>(self: &AccountProfile, protocol_id: ID): u64 {
+    if (self.stakes.contains(protocol_id)) {
+        let stake_info = self.stakes.borrow<ID, StakingInfo<T, YT>>(protocol_id);
+        stake_info.total_asset_amount
+    } else {
+        0
+    }
 }
-
-/// Get the staaking total amount of the given protocol
-public fun staking_info(self: &AccountProfile, protocol_id: &ID): Option<StakingInfo> {
-    self.stakes.try_get(protocol_id)
-}
+    
+// /// Get the staaking total amount of the given protocol
+// public fun staking_info<YT: store>(self: &AccountProfile, protocol_id: &ID): Option<&StakingInfo<YT>> {
+//     if (self.stakes.contains(protocol_id)) {
+//         option::some(self.stakes.borrow<ID, StakingInfo<YT>>(protocol_id))
+//     } else {
+//         option::none()
+//     }
+// }
 
 public fun debt_info(self: &AccountProfile, pool_id: ID): Option<DebtInfo> {
     self.debts.try_get(&pool_id)
@@ -377,12 +363,12 @@ public fun account_of(self: &AccountProfileCap): ID {
 }
 
 /// Get staking total amount
-public fun staking_total_amount(self: &StakingInfo): u64 {
-    self.total_amount
+public fun staking_total_amount<T, YT>(self: &StakingInfo<T, YT>): u64 {
+    self.total_asset_amount
 }
 
 /// Get staking type
-public fun staking_asset_type(self: &StakingInfo): TypeName {
+public fun staking_asset_type<T, YT>(self: &StakingInfo<T, YT>): TypeName {
     self.asset_type
 }
 
