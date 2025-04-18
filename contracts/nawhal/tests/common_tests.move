@@ -137,7 +137,7 @@ public fun get_shares_for_testing<T, YT>(sc: &mut Scenario, amount: u64, sender:
     let profile_cap = sc.take_from_sender<AccountProfileCap>();
     let account_id = profile_cap.account_of();
     let account = account_registry.borrow_account_mut(account_id);
-    let shares = account_ds::take_staking_shares<T, YT>( account, lending_protocol_id, amount);
+    let shares = account.take_staking_shares<T, YT>(lending_protocol_id, amount);
     ts::return_shared(account_registry);
     sc.return_to_sender(profile_cap);
     shares

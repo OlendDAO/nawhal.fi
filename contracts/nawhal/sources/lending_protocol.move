@@ -53,7 +53,6 @@ public fun deposit<T, YT>(
     clock: &Clock, 
     ctx: &mut TxContext
 ) {
-    
     let protocol_id = self.protocol_id();
 
     self.supply = self.supply + payload.value();
@@ -109,12 +108,20 @@ public fun withdraw<T, YT>(
 
 /// ------- Governance ------- //
 /// Register a new lending protocol to LiquidityLayer
-public fun register_lending_protocol<T>(liquidity_layer: &mut LiquidityLayer, admin_cap: &AdminCap, supply_cap: u64, ctx: &mut TxContext) {
+/// Returns the ID of the newly created protocol object.
+public fun register_lending_protocol<T>(
+    liquidity_layer: &mut LiquidityLayer, 
+    admin_cap: &AdminCap, 
+    supply_cap: u64, 
+    ctx: &mut TxContext
+): ID { // Return the ID
     let lending_protocol = new_lending_protocol<T>(supply_cap, ctx);
+    let protocol_id = lending_protocol.protocol_id(); // Get ID before sharing
 
-    liquidity_layer::register_protocol<T>(liquidity_layer, admin_cap, lending_protocol.protocol_id(), new_lending_protocol_type(), ctx);
+    liquidity_layer::register_protocol<T>(liquidity_layer, admin_cap, protocol_id, new_lending_protocol_type(), ctx);
     
     transfer::share_object(lending_protocol);
+    protocol_id // Return the ID
 }
 
 // ------- new structs ------- //
