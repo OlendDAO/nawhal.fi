@@ -66,7 +66,7 @@ fun withdraw_helper<T, YT>(
     let mut registry = sc.take_shared<AccountRegistry>();
     let profile_cap = sc.take_from_sender<AccountProfileCap>();
     let clock = sc.take_shared<Clock>();
-    // let shares = ct::get_shares_for_testing<T, YT>(sc, amount, sender, protocol.protocol_id());
+
     let withdrawn_balance = lending_protocol::withdraw<T, YT>(
         &mut protocol, &mut layer, &mut registry, &profile_cap, amount, &clock, sc.ctx()
     );
@@ -84,7 +84,7 @@ fun withdraw_helper<T, YT>(
 fun check_state_after_op<T, YT>(
     sc: &mut Scenario, 
     expected_layer_balance: u64, 
-    expected_profile_stake: u64, 
+    expected_profile_stake: u64,
     sender: address
 ) {
     // Check Liquidity Layer state
@@ -92,7 +92,6 @@ fun check_state_after_op<T, YT>(
     let layer = sc.take_shared<LiquidityLayer>();
 
     assert_eq(layer.vault_cash_balance<T, YT>(), expected_layer_balance);
-
     let protocol_obj = sc.take_shared<LendingProtocol<T>>();
     let protocol_id = protocol_obj.protocol_id();
 
@@ -103,16 +102,18 @@ fun check_state_after_op<T, YT>(
 
     // Check Account Registry state
     sc.next_tx(sender);
+
     let mut registry = sc.take_shared<AccountRegistry>();
     let profile_cap = sc.take_from_sender<AccountProfileCap>();
     let profile = registry.borrow_account_mut(profile_cap.account_of());
     let protocol_obj = sc.take_shared<LendingProtocol<T>>(); // Take again as it was returned
-
-    assert_eq(profile.stake_total_amount<T, YT>(protocol_obj.protocol_id()), expected_profile_stake);
-
+    let protocol_id = protocol_obj.protocol_id(); // Get ID here
+    
+    assert_eq(profile.stake_total_amount<T, YT>(protocol_id), expected_profile_stake);
+    
     sc.return_to_sender(profile_cap);
     ts::return_shared(registry);
-    ts::return_shared(protocol_obj);
+    ts::return_shared(protocol_obj); // protocol_obj not taken if assert is commented out
 }
 
 // === Test Functions ===

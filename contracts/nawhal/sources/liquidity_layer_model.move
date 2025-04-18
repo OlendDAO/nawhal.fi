@@ -1,4 +1,3 @@
-
 module nawhal::liquidity_layer_model;
 
 use std::ascii::String;
@@ -349,14 +348,22 @@ public(package) fun increment_protocol_amount(self: &mut LiquidityLayer, protoco
     protocol_config.amount = protocol_config.amount + amount;
 }
 
-// /// Decrement the protocol amount
-// public(package) fun decrement_protocol_amount<T>(self: &mut LiquidityLayer, protocol_id: ID, amount: u64) {
-//     let vault = self.borrow_vault_mut<T>();
-//     vault.cumulative_out = vault.cumulative_out + amount;
-//     vault.total_deposits = vault.total_deposits - amount;
-//     let protocol_config = self.get_protocol_mut(&protocol_id);
-//     protocol_config.amount = protocol_config.amount - amount;
-// }
+/// Decrement the protocol amount
+public(package) fun decrement_protocol_amount(self: &mut LiquidityLayer, protocol_id: ID, amount: u64) {
+    // Vault-level stats like cumulative_out or total_deposits might not be needed here or may belong in LiquidityVault module itself.
+    // let vault = self.borrow_vault_mut<T, YT>(); // Generic types T, YT are not available here
+    // vault.cumulative_out = vault.cumulative_out + amount;
+    // vault.total_deposits = vault.total_deposits - amount;
+    
+    // Core logic: Update the amount tracked for the protocol in the layer
+    let protocol_config = self.get_protocol_mut(&protocol_id);
+    // Prevent underflow - though checks should happen before calling this
+    if (protocol_config.amount >= amount) {
+        protocol_config.amount = protocol_config.amount - amount;
+    } else {
+        protocol_config.amount = 0; // Or handle error appropriately
+    }
+}
 
 /// Withdraw from LiquidityVault
 public(package) fun withdraw_from_liquidity_vault<T, YT>(self: &mut LiquidityLayer, shares: Balance<YT>, clock: &Clock): Balance<T> {

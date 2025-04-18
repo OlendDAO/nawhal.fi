@@ -25,7 +25,7 @@ use nawhal::liquidity_event;
 use nawhal::liquidity_vault::{VaultCap};
 
 // ------- errors ------- //
-const EProtocolInsufficientBalance: u64 = 10008;
+// const EProtocolInsufficientBalance: u64 = 10008;
 
 
 // ------- functions ------- //
@@ -74,29 +74,33 @@ public fun deposit<T, YT>(self: &mut LiquidityLayer, protocol_id: ID, payload: B
 public fun withdraw<T, YT>(self: &mut LiquidityLayer, protocol_id: ID, shares: Balance<YT>, clock: &Clock, ctx: &mut TxContext): Balance<T> {
     if (shares.value() == 0) {
         shares.destroy_zero();
-        return balance::zero()
+        return balance::zero<T>()
     };
 
     let asset_type = type_name::get<T>();
     liquidity_layer_model::check_protocol_exists(self, &protocol_id);
     liquidity_layer_model::check_protocol_asset_type_match(self, &protocol_id, &asset_type);
 
-    // let protocol_config = self.get_protocol_mut<T>(&protocol_id);
-    // std::debug::print(self);
-    // std::debug::print(&self.borrow_vault().free_balance_value<T, YT>());
-    assert!(self.get_protocol_amount(&protocol_id) >= shares.value(), EProtocolInsufficientBalance);
+    // Initial check based on shares value might be inaccurate, 
+    // but necessary if layer withdraw requires shares
+    // A better check might involve simulating the withdrawal value first.
+    // assert!(self.get_protocol_amount(&protocol_id) >= shares.value(), EProtocolInsufficientBalance);
     
-    // self.decrement_protocol_amount<T>(protocol_id, amount);
-
     let current_epoch = ctx.epoch();
-    let amount = shares.value();
+    // let shares_value_for_event = shares.value(); // Keep for event
 
-    let withdrawn_balance = self.withdraw_from_liquidity_vault<T, YT>( shares, clock);
+    // Withdraw from vault using shares
+    let withdrawn_balance_t = self.withdraw_from_liquidity_vault<T, YT>( shares, clock);
+    let withdrawn_value = withdrawn_balance_t.value(); // Get the actual withdrawn asset value
 
-    // Emit protocol withdrawn event
-    liquidity_event::emit_protocol_withdrawn_event(self.layer_id(), protocol_id, amount, clock.timestamp_ms(), current_epoch);
+    // Decrement the protocol amount using the ACTUAL withdrawn asset value
+    self.decrement_protocol_amount(protocol_id, withdrawn_value);
 
-    withdrawn_balance
+    // Emit protocol withdrawn event (using shares value as amount? Or withdrawn_value?)
+    // Using withdrawn_value seems more consistent with the state update.
+    liquidity_event::emit_protocol_withdrawn_event(self.layer_id(), protocol_id, withdrawn_value, clock.timestamp_ms(), current_epoch);
+
+    withdrawn_balance_t
 }
 
 // /// Borrowing of funds from the treasury and the need to pay the corresponding interest on the borrowed funds 

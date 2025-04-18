@@ -16,7 +16,7 @@ use sui::clock::Clock;
 use nawhal::admin::AdminCap;
 use nawhal::liquidity_layer_model::{LiquidityLayer, new_lending_protocol_type};
 use nawhal::liquidity_layer;
-use nawhal::account_ds::{Self, AccountProfile, AccountRegistry, AccountProfileCap};
+use nawhal::account_ds::{AccountProfile, AccountRegistry, AccountProfileCap};
 
 // ------- Errors ------- //
 const EInsufficientBalance: u64 = 20001;
@@ -73,27 +73,38 @@ public fun withdraw<T, YT>(
     liquidity_layer: &mut LiquidityLayer, 
     registry: &mut AccountRegistry, 
     cap: &AccountProfileCap,
-    amount: u64,
+    amount: u64, // Value amount requested by user
     clock: &Clock, 
     ctx: &mut TxContext
-): Balance<T> {
+): Balance<T> { 
     if (amount == 0) {
-        return balance::zero()
+        return balance::zero<T>()
     };
 
     let protocol_id = self.protocol_id();
+    let account_id = cap.account_of();
+    let profile = registry.borrow_account_mut(account_id);
 
-    let profile = registry.borrow_account_mut(cap.account_of());
-
+    // 1. Check recorded stake amount (value)
     let stake_total_amount = profile.stake_total_amount<T, YT>(protocol_id);
+    check_stake_total_amount_greater_than_or_equal_to_amount(stake_total_amount, amount);
 
-    let shares = account_ds::take_staking_shares<T, YT>( profile, protocol_id, amount);
+    // 2. Calculate/Determine shares to withdraw
+    // WARNING: Assuming shares amount = value amount. This needs accurate calculation logic.
+    let shares_amount_to_take = amount; 
 
-    check_stake_total_amount_greater_than_or_equal_to_amount(stake_total_amount, shares.value());
+    // 3. Take the corresponding shares (Balance<YT>) from the profile
+    // This will abort with ENotEnough if actual shares are insufficient.
+    let shares_to_withdraw_balance = profile.take_staking_shares<T, YT>(protocol_id, shares_amount_to_take); 
 
-    profile.sub_staking_value<T, YT>(protocol_id, shares.value());
+    // 4. Update the profile's recorded total_asset_amount (value)
+    profile.sub_staking_value<T, YT>(protocol_id, amount);
 
-    liquidity_layer::withdraw<T, YT>(liquidity_layer, protocol_id, shares, clock, ctx)
+    // 5. Withdraw from Liquidity Layer using the taken shares
+    let withdrawn_balance_t = liquidity_layer::withdraw<T, YT>(liquidity_layer, protocol_id, shares_to_withdraw_balance, clock, ctx);
+    
+    // 6. Return the actual withdrawn Balance<T>
+    withdrawn_balance_t
 }
 
 /// ------- Governance ------- //
