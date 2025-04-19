@@ -1,7 +1,6 @@
-
 /// This module is used to manage the position of the user
 /// 
-module nawhal::position;
+module narval::position;
 
 // ------ Constants ------ //
 const COLLATERAL_RATIO_PERCENTAGE: u64 = 100;

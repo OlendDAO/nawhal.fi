@@ -1,7 +1,6 @@
-
 //! Event module for nawhal
 
-module nawhal::liquidity_event;
+module narval::liquidity_event;
 
 use std::ascii::String;
 

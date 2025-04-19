@@ -1,7 +1,6 @@
-
 /// This module is used to define all the data structures for the account module
 
-module nawhal::account_ds;
+module narval::account_ds;
 
 use std::ascii::String;
 use std::type_name::{Self, TypeName};

@@ -1,9 +1,8 @@
-
 /// This module is used to manage the account of the user
 /// 
-module nawhal::account;
+module narval::account;
 
-use nawhal::account_ds;
+use narval::account_ds;
 
 /// Init Account context
 fun init(ctx: &mut TxContext) {

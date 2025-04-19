@@ -1,6 +1,4 @@
-
-
-module nawhal::ytsui;
+module narval::ytsui;
 
 use sui::coin;
 

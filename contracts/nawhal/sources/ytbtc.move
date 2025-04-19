@@ -1,6 +1,4 @@
-
-
-module nawhal::ytbtc;
+module narval::ytbtc;
 
 use sui::coin;
 

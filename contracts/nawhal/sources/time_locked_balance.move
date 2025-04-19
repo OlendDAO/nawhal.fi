@@ -7,11 +7,11 @@
 /// as a basic building block and to provide safety guarantees for building more complex token
 /// emission modules (e.g. vesting).
 /// 
-module nawhal::time_locked_balance;
+module narval::time_locked_balance;
 use std::u64;
 use sui::balance::{Self, Balance};
 use sui::clock::Clock;
-use nawhal::util::timestamp_sec;
+use narval::util::timestamp_sec;
 
 /* ================= TimeLockedBalance ================= */
 

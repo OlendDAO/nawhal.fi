@@ -1,5 +1,5 @@
 #[test_only]
-module nawhal::lending_protocol_tests;
+module narval::lending_protocol_tests;
 
 use sui::test_scenario::{Self as ts, Scenario};
 use sui::test_utils::{Self as tu};
@@ -7,16 +7,16 @@ use sui::coin;
 use sui::balance::Balance;
 use sui::clock::Clock;
 
-use nawhal::lending_protocol::{Self, LendingProtocol};
-use nawhal::liquidity_layer_model::{LiquidityLayer};
-use nawhal::admin::AdminCap;
-use nawhal::account_ds::{AccountRegistry, AccountProfileCap};
-use nawhal::ytbtc::YTBTC;
-use nawhal::ytsui::YTSUI;
+use narval::lending_protocol::{Self, LendingProtocol};
+use narval::liquidity_layer_model::{LiquidityLayer};
+use narval::admin::AdminCap;
+use narval::account_ds::{AccountRegistry, AccountProfileCap};
+use narval::ytbtc::YTBTC;
+use narval::ytsui::YTSUI;
 
 use sui::test_utils::assert_eq;
 
-use nawhal::common_tests::{Self as ct, alice, TBTC, TSUI};
+use narval::common_tests::{Self as ct, alice, TBTC, TSUI};
 
 // === Helper Functions ===
 

@@ -1,5 +1,4 @@
-
-module nawhal::admin;
+module narval::admin;
 
 public struct AdminCap has key {
     id: UID,

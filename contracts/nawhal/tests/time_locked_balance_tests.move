@@ -1,9 +1,9 @@
 // Copyright (c) Kuna Labs d.o.o.
 // SPDX-License-Identifier: Apache-2.0
 
-module nawhal::time_locked_balance_tests;
+module narval::time_locked_balance_tests;
 
-use nawhal::time_locked_balance::{Self as tlb, TimeLockedBalance};
+use narval::time_locked_balance::{Self as tlb, TimeLockedBalance};
 use sui::balance::{Self, Balance};
 use sui::clock::{Self, Clock};
 

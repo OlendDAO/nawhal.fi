@@ -1,14 +1,13 @@
-
 #[test_only]
-module nawhal::account_tests;
+module narval::account_tests;
 
 use std::ascii::String;
 
-use nawhal::account;
-use nawhal::account_ds::{AccountRegistry, AccountProfileCap};
+use narval::account;
+use narval::account_ds::{AccountRegistry, AccountProfileCap};
 use sui::test_scenario::{Self as ts, Scenario};
 
-use nawhal::common_tests::{Self, alice, bob};
+use narval::common_tests::{Self, alice, bob};
 
 
 #[test]
@@ -32,7 +31,7 @@ fun register_account_should_work() {
     sc0.end();
 }
 
-#[test, expected_failure(abort_code = ::nawhal::account_ds::EOwnerAlreadyRegistered)]
+#[test, expected_failure(abort_code = ::narval::account_ds::EOwnerAlreadyRegistered)]
 fun registry_twice_should_fail() {
     let mut sc0 = ts::begin(alice());
 

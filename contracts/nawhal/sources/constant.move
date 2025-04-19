@@ -1,5 +1,4 @@
-
-module nawhal::constant;
+module narval::constant;
 
 /// Consts
 /// Define a trillion for precision

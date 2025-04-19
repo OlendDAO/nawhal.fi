@@ -1,4 +1,4 @@
-module nawhal::liquidity_layer_model;
+module narval::liquidity_layer_model;
 
 use std::ascii::String;
 use std::type_name::{Self, TypeName};
@@ -9,7 +9,7 @@ use sui::coin::TreasuryCap;
 use sui::object_bag::{Self, ObjectBag};
 use sui::vec_map::{Self, VecMap};
 
-use nawhal::liquidity_vault::{Self, LiquidityVault, VaultCap};
+use narval::liquidity_vault::{Self, LiquidityVault, VaultCap};
 
 // ------- constants ------- //
 // const DEFAULT_RATE_LIMITING_IN_DAY: u64 = 1_000_000_000_000_000;    // 1 million

@@ -6,17 +6,17 @@
 //! - Manage the protocol's liquidity
 //!
 
-module nawhal::lending_protocol;
+module narval::lending_protocol;
 
 use sui::balance::{Self, Balance};
 use sui::coin::Coin;
 use sui::table::{Self, Table};
 use sui::clock::Clock;
 
-use nawhal::admin::AdminCap;
-use nawhal::liquidity_layer_model::{LiquidityLayer, new_lending_protocol_type};
-use nawhal::liquidity_layer;
-use nawhal::account_ds::{AccountProfile, AccountRegistry, AccountProfileCap};
+use narval::admin::AdminCap;
+use narval::liquidity_layer_model::{LiquidityLayer, new_lending_protocol_type};
+use narval::liquidity_layer;
+use narval::account_ds::{AccountProfile, AccountRegistry, AccountProfileCap};
 
 // ------- Errors ------- //
 const EInsufficientBalance: u64 = 20001;

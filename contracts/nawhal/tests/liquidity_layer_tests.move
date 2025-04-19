@@ -1,20 +1,19 @@
-
 #[test_only]
-module nawhal::liquidity_layer_tests;
+module narval::liquidity_layer_tests;
 
 use sui::balance::Balance;
 use sui::coin;
 use sui::clock::Clock;
-use nawhal::liquidity_layer;
-use nawhal::liquidity_layer_model::{Self,LiquidityLayer, LiquidityStatus};
+use narval::liquidity_layer;
+use narval::liquidity_layer_model::{Self,LiquidityLayer, LiquidityStatus};
 
 use sui::test_scenario::{Self as ts, Scenario};
 use sui::test_utils::{Self as tu};
 
-use nawhal::admin::AdminCap;
-use nawhal::ytbtc::YTBTC;
-use nawhal::ytsui::YTSUI;
-use nawhal::common_tests::{Self, alice, TBTC, TSUI};
+use narval::admin::AdminCap;
+use narval::ytbtc::YTBTC;
+use narval::ytsui::YTSUI;
+use narval::common_tests::{Self, alice, TBTC, TSUI};
 
 #[test]
 fun test_liquidity_layer_main_flow_should_work() {

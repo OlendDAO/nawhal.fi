@@ -1,4 +1,4 @@
-module nawhal::liquidity_vault;
+module narval::liquidity_vault;
 use std::u64;
 use sui::balance::{Self, Balance};
 use sui::coin::{Self, TreasuryCap};
@@ -7,9 +7,9 @@ use sui::vec_map::{Self, VecMap};
 use sui::vec_set;
 use sui::event;
 
-use nawhal::admin::AdminCap;
-use nawhal::time_locked_balance::{Self as tlb, TimeLockedBalance};
-use nawhal::util::{muldiv, muldiv_round_up, timestamp_sec};
+use narval::admin::AdminCap;
+use narval::time_locked_balance::{Self as tlb, TimeLockedBalance};
+use narval::util::{muldiv, muldiv_round_up, timestamp_sec};
 
 /* ================= constants ================= */
 

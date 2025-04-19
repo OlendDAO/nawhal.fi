@@ -1,7 +1,7 @@
 // Copyright (c) Olend Labs .
 // SPDX-License-Identifier: Apache-2.0
 
-module nawhal::util;
+module narval::util;
 
 use sui::clock::{Self, Clock};
 

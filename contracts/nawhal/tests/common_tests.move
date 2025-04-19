@@ -1,5 +1,5 @@
 #[test_only]
-module nawhal::common_tests;
+module narval::common_tests;
 
 use std::ascii::String;
 
@@ -8,15 +8,13 @@ use sui::clock::{Self, Clock};
 use sui::coin::TreasuryCap;
 use sui::test_scenario::{Self as ts, Scenario};
 
-use nawhal::account_ds::{Self, AccountRegistry, AccountProfileCap};
-use nawhal::account;
-use nawhal::liquidity_layer_model::LiquidityLayer;
-use nawhal::liquidity_layer;
-use nawhal::admin::AdminCap;
-use nawhal::ytbtc;
-use nawhal::ytsui;
-
-// use nawhal::account;
+use narval::account_ds::{Self, AccountRegistry, AccountProfileCap};
+use narval::account;
+use narval::liquidity_layer_model::LiquidityLayer;
+use narval::liquidity_layer;
+use narval::admin::AdminCap;
+use narval::ytbtc;
+use narval::ytsui;
 
 /// Coins for testing
 public struct TBTC has drop { }

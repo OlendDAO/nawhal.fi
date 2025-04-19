@@ -10,7 +10,7 @@
 //! 
 //! It calls for simpler, more readable, and reliable code - at least at the base layer - to ensure safety.
 
-module nawhal::liquidity_layer;
+module narval::liquidity_layer;
 
 // use std::ascii::String;
 use std::type_name;
@@ -19,10 +19,10 @@ use sui::balance::{Self, Balance};
 use sui::clock::Clock;
 use sui::coin::TreasuryCap;
 
-use nawhal::admin::{Self, AdminCap};
-use nawhal::liquidity_layer_model::{Self, LiquidityLayer, ProtocolType};
-use nawhal::liquidity_event;
-use nawhal::liquidity_vault::{VaultCap};
+use narval::admin::{Self, AdminCap};
+use narval::liquidity_layer_model::{Self, LiquidityLayer, ProtocolType};
+use narval::liquidity_event;
+use narval::liquidity_vault::{VaultCap};
 
 // ------- errors ------- //
 // const EProtocolInsufficientBalance: u64 = 10008;
