@@ -517,6 +517,13 @@ fun create_withdraw_ticket<T, YT>(vault: &LiquidityVault<T, YT>): WithdrawTicket
 }
 
 
+/// Withdraws a corresponding amount of the underlying asset (T) based on the liquidity provider token (YT, i.e., shares) provided by the user.
+/// 1. Checks if the input shares amount is zero. If so, returns a zero-value WithdrawTicket.
+/// 2. Calculates the equivalent amount of the underlying asset (T) to be withdrawn based on the shares (YT).
+/// 3. Reduces the vault's free balance first.
+/// 4. If the free balance is insufficient, calculates the remaining amount to withdraw from strategies based on priority and proportion.
+/// 5. Creates and returns a `WithdrawTicket` containing the amount of underlying asset to withdraw from the free balance and from each strategy.
+///    This ticket needs to be redeemed later via `redeem_withdraw_ticket` to get the actual `Balance<T>`.
 public fun withdraw<T, YT>(
     vault: &mut LiquidityVault<T, YT>, balance: Balance<YT>, clock: &Clock
 ): WithdrawTicket<T, YT> {

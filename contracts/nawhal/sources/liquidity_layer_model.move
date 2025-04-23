@@ -162,6 +162,16 @@ public fun layer_status_to_string(status: LiquidityStatus): String {
     }
 }
 
+/// Translate ProtocolType from u8 to ProtocolType
+public fun protocol_type_from_u8(protocol_type: u8): ProtocolType {
+    match (protocol_type) {
+        1 => new_vault_protocol_type(),
+        2 => new_dex_protocol_type(),
+        _ => new_lending_protocol_type(),
+    }
+
+}
+
 // ------- Checks ------- //
 /// Checks if a protocol is already registered in the liquidity layer.
 /// Aborts with `EProtocolNotRegistered` if the protocol is found in the `protocols` set.

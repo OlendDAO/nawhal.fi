@@ -17,7 +17,7 @@ use std::type_name;
 
 use sui::balance::{Self, Balance};
 use sui::clock::Clock;
-use sui::coin::TreasuryCap;
+use sui::coin::{Self, Coin, TreasuryCap};
 
 use narval::admin::{Self, AdminCap};
 use narval::liquidity_layer_model::{Self, LiquidityLayer, ProtocolType};
@@ -68,6 +68,13 @@ public fun deposit<T, YT>(self: &mut LiquidityLayer, protocol_id: ID, payload: B
     }  
 }
 
+/// Entry fun for depoist
+public entry fun deposit_api<T, YT>(self: &mut LiquidityLayer, protocol_id: ID, payload: Coin<T>, clock: &Clock, ctx: &mut TxContext) {
+    let shares = deposit<T, YT>(self, protocol_id, payload.into_balance(), clock, ctx);
+    
+    transfer::public_transfer(coin::from_balance<YT>(shares, ctx), ctx.sender());
+}
+
 /// The Protocol withdraws the assets from the LiquidityLayer.
 /// And update the protocol amount with protocol_id.
 /// Ignore the amount if the protocol amount is less than the amount.
@@ -103,8 +110,12 @@ public fun withdraw<T, YT>(self: &mut LiquidityLayer, protocol_id: ID, shares: B
     withdrawn_balance_t
 }
 
-// /// Borrowing of funds from the treasury and the need to pay the corresponding interest on the borrowed funds 
-
+/// Entry fun for withdraw
+public entry fun withdraw_api<T, YT>(self: &mut LiquidityLayer, protocol_id: ID, shares: Coin<YT>, clock: &Clock, ctx: &mut TxContext) {
+    let withdrawn_balance_t = withdraw<T, YT>(self, protocol_id, shares.into_balance(), clock, ctx);
+    
+    transfer::public_transfer(coin::from_balance<T>(withdrawn_balance_t, ctx), ctx.sender());
+}
 
 // ------- Governance functions ------- //
 /// Register a new asset vault to the LiquidityLayer.
@@ -144,6 +155,20 @@ public fun register_vault_by_admin_cap<T, YT>(
     register_asset_vault<T, YT>(self, lp_treasury, ctx)
 }
 
+/// Entry fun for register vault
+public entry fun register_vault_api<T, YT>(self: &mut LiquidityLayer, admin_cap: &AdminCap, lp_treasury: TreasuryCap<YT>, ctx: &mut TxContext) {
+    let vault_cap = register_vault_by_admin_cap<T, YT>(self, admin_cap, lp_treasury, ctx);
+    
+    transfer::public_transfer(vault_cap, ctx.sender());
+}
+
+/// Entry fun for register protocol
+public entry fun register_protocol_api<T>(self: &mut LiquidityLayer, admin_cap: &AdminCap, protocol_id: ID, protocol_type: u8, ctx: &mut TxContext) {
+    let protocol_type = liquidity_layer_model::protocol_type_from_u8(protocol_type);
+
+    register_protocol<T>(self, admin_cap, protocol_id, protocol_type, ctx);
+}
+
 /// Register a new protocol to the LiquidityLayer
 /// Pause the liquidity layer
 public fun register_protocol<T>(self: &mut LiquidityLayer, _admin_cap: &AdminCap, protocol_id: ID, protocol_type: ProtocolType, ctx: &mut TxContext) {
@@ -170,6 +195,15 @@ public fun pause_liquidity_layer(self: &mut LiquidityLayer, _admin_cap: &AdminCa
 
     // Emit liquidity layer paused event
     liquidity_event::emit_liquidity_layer_paused_event(self.layer_id(), old_status.layer_status_to_string(), new_status.layer_status_to_string(), ctx.epoch_timestamp_ms(), ctx.epoch());
+}
+/// Entry fun for pause liquidity layer
+public entry fun pause_liquidity_layer_api(self: &mut LiquidityLayer, admin_cap: &AdminCap, ctx: &mut TxContext) {
+    pause_liquidity_layer(self, admin_cap, ctx);
+}
+
+/// Entry fun for resume liquidity layer
+public entry fun resume_liquidity_layer_api(self: &mut LiquidityLayer, admin_cap: &AdminCap, ctx: &mut TxContext) {
+    resume_liquidity_layer(self, admin_cap, ctx);
 }
 
 /// Resume the liquidity layer

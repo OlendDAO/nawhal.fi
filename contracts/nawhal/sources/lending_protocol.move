@@ -11,7 +11,7 @@ module narval::lending_protocol;
 use std::type_name::{Self, TypeName};
 
 use sui::balance::{Self, Balance};
-use sui::coin::Coin;
+use sui::coin::{Self, Coin};
 use sui::table::{Self, Table};
 use sui::clock::Clock;
 
@@ -86,6 +86,33 @@ public fun deposit<T, YT>(
     self.add_staking_shares<T, YT>(account_id, shares, asset_amount, now);
 }
 
+/// Entry fun for deposit
+public entry fun deposit_api<T, YT>(
+    self: &mut LendingProtocol<T, YT>, 
+    liquidity_layer: &mut LiquidityLayer, 
+    registry: &mut AccountRegistry, 
+    payload: Coin<T>, 
+    clock: &Clock, 
+    ctx: &mut TxContext
+) {
+    deposit<T, YT>(self, liquidity_layer, registry, payload, clock, ctx);
+}
+
+/// Entry fun for withdraw
+public entry fun withdraw_api<T, YT>(
+    self: &mut LendingProtocol<T, YT>, 
+    liquidity_layer: &mut LiquidityLayer, 
+    registry: &mut AccountRegistry, 
+    cap: &AccountProfileCap,
+    amount: u64, // Value amount requested by user
+    clock: &Clock, 
+    ctx: &mut TxContext
+) {
+    let withdrawn_balance_t = withdraw<T, YT>(self, liquidity_layer, registry, cap, amount, clock, ctx);
+    
+    transfer::public_transfer(coin::from_balance<T>(withdrawn_balance_t, ctx), ctx.sender());
+}
+
 /// Withdraw assets from the protocol
 public fun withdraw<T, YT>(
     self: &mut LendingProtocol<T, YT>, 
@@ -149,6 +176,16 @@ public fun register_lending_protocol<T, YT>(
     
     transfer::share_object(lending_protocol);
     protocol_id // Return the ID
+}
+
+/// Entry fun for register lending protocol
+public entry fun register_lending_protocol_api<T, YT>(
+    liquidity_layer: &mut LiquidityLayer, 
+    admin_cap: &AdminCap, 
+    supply_cap: u64, 
+    ctx: &mut TxContext
+) { 
+    register_lending_protocol<T, YT>(liquidity_layer, admin_cap, supply_cap, ctx);
 }
 
 // ------- new structs ------- //
