@@ -5,14 +5,13 @@ module narval::account_ds;
 use std::ascii::String;
 use std::type_name::{Self, TypeName};
 
-use sui::bag::{Self, Bag};
-use sui::balance::Balance;
+
 use sui::clock::Clock;
 use sui::event;
 use sui::object_table::{Self as ot, ObjectTable};
 use sui::table::{Self, Table};
 use sui::vec_set::{Self, VecSet};
-use sui::vec_map::{Self, VecMap};
+
 /// Allow calling `.share` to share  `AccountRegistry`
 public use fun share_registry as AccountRegistry.share;
 
@@ -56,23 +55,12 @@ public enum AccountProfileStatus has copy, drop, store {
 public struct AccountProfile has key, store {
     id: UID,
     name: String,
-    // Store (lending_protocol_id, staking_info) pair
-    stakes: Bag,
+    // Store (lending_protocol_id) pair
+    lendings: VecSet<ID>,
     // Store (lending_protocol_id, debt_info) pair
-    debts: VecMap<ID, DebtInfo>,
+    // debts: VecMap<ID, DebtInfo>,
     latest_updated_ms: u64,
     status: AccountProfileStatus,
-}
-
-/// The staking info of a vault
-public struct StakingInfo<phantom T, phantom YT> has store {
-    lending_protocol_id: ID,
-    asset_type: TypeName,
-    /// The shares after staked 
-    shares: Balance<YT>,
-    /// The total amount of the staking `T
-    total_asset_amount: u64,
-    latest_updated_ms: u64,
 }
 
 /// The debt info of a pool
@@ -113,8 +101,7 @@ public fun new_profile(
     let profile = AccountProfile {
         id: object::new(ctx),
         name,
-        stakes: bag::new(ctx),
-        debts: vec_map::empty(),
+        lendings: vec_set::empty(),
         latest_updated_ms: created_at_ms,
         status: AccountProfileStatus::Active,
     };
@@ -130,20 +117,7 @@ public fun new_profile(
     (profile, cap)
 }
 
-public fun new_staking_info<T, YT>(
-    lending_protocol_id: ID,
-    total_asset_amount: u64,
-    shares: Balance<YT>,
-    latest_updated_ms: u64,
-): StakingInfo<T, YT> {
-    StakingInfo {
-        lending_protocol_id,
-        asset_type: type_name::get<T>(),
-        shares,
-        total_asset_amount,
-        latest_updated_ms,
-    }
-}
+
 
 public fun new_debt_info<T>(
     pool_id: ID,
@@ -235,65 +209,33 @@ public(package) fun add_owner(registry: &mut AccountRegistry, owner: address, ac
     registry.owners.add(owner, account_id);
 }
 
-/// Add the staking infos to the account profile, including shares
-public(package) fun add_staking_shares<T, YT>(
-    self: &mut AccountProfile, 
-    protocol_id: ID, 
-    shares: Balance<YT>, 
-    total_asset_amount: u64, 
-    latest_updated_ms: u64
-) {
-    if (self.stakes.contains(protocol_id)) {
-        let stakes = self.stakes.borrow_mut<ID, StakingInfo<T, YT>>(protocol_id);
-        stakes.shares.join(shares);
-        stakes.total_asset_amount = stakes.total_asset_amount + total_asset_amount;
-    } else {
-        self.stakes.add(protocol_id, new_staking_info<T, YT>(protocol_id, 
-        total_asset_amount, shares, latest_updated_ms));
+/// Add a new lending protocol to the account profile
+public(package) fun add_lending_protocol(self: &mut AccountProfile, lending_protocol_id: ID) {
+    if (!self.lendings.contains(&lending_protocol_id)) {
+        self.lendings.insert(lending_protocol_id);
     }
 }
 
-/// Take shares from the staking info.
-/// Abort if the shares are less than the amount to take
-public(package) fun take_staking_shares<T, YT>(self: &mut AccountProfile, lending_protocol_id: ID, amount: u64): Balance<YT> {
-    let stakes = self.stakes.borrow_mut<ID, StakingInfo<T, YT>>(lending_protocol_id);
-    stakes.shares.split(amount)
-}
+// /// Add the debt value
+// public(package) fun add_debt_value(self: &mut AccountProfile, pool_id: ID, value: u64) {
+//     let debts = self.debts.get_mut(&pool_id);
 
-/// Subtract the staking value
-/// Abort if the staking value is less than the value to subtract or the staking info does not exist
-public(package) fun sub_staking_value<T, YT>(self: &mut AccountProfile, lending_protocol_id: ID, value: u64) {
-    let stakes = self.stakes.borrow_mut<ID, StakingInfo<T, YT>>(lending_protocol_id);
+//     debts.value = debts.value + value;
+// }
 
-    stakes.total_asset_amount = stakes.total_asset_amount - value;
-}
+// /// Subtract the debt value
+// /// Abort if the debt value is less than the value to subtract or the debt info does not exist
+// public(package) fun sub_debt_value(self: &mut AccountProfile, pool_id: ID, value: u64) {
+//     let debts = self.debts.get_mut(&pool_id);
 
-/// Remove staking info
-/// Abort if the staking info does not exist
-public(package) fun remove_staking_info<T, YT>(self: &mut AccountProfile, lending_protocol_id: ID): StakingInfo<T, YT> {
-    self.stakes.remove(lending_protocol_id)
-}
+//     debts.value = debts.value - value;
+// }
 
-/// Add the debt value
-public(package) fun add_debt_value(self: &mut AccountProfile, pool_id: ID, value: u64) {
-    let debts = self.debts.get_mut(&pool_id);
-
-    debts.value = debts.value + value;
-}
-
-/// Subtract the debt value
-/// Abort if the debt value is less than the value to subtract or the debt info does not exist
-public(package) fun sub_debt_value(self: &mut AccountProfile, pool_id: ID, value: u64) {
-    let debts = self.debts.get_mut(&pool_id);
-
-    debts.value = debts.value - value;
-}
-
-/// Remove debt info
-/// Abort if the debt info does not exist
-public(package) fun remove_debt_info(self: &mut AccountProfile, pool_id: ID) {
-    self.debts.remove(&pool_id);
-}
+// /// Remove debt info
+// /// Abort if the debt info does not exist
+// public(package) fun remove_debt_info(self: &mut AccountProfile, pool_id: ID) {
+//     self.debts.remove(&pool_id);
+// }
 
 /// Update the latest updated time of the account profile
 public(package) fun update_latest_updated_ms(self: &mut AccountProfile, latest_updated_ms: u64) {
@@ -308,17 +250,6 @@ public fun account_id(self: &AccountProfile): ID {
 public fun name(self: &AccountProfile): String {
     self.name
 }
-
-/// Get the staking total amount of the protocol id
-/// Returns 0 if the protocol id does not exist
-public fun stake_total_amount<T, YT>(self: &AccountProfile, protocol_id: ID): u64 {
-    if (self.stakes.contains(protocol_id)) {
-        let stake_info = self.stakes.borrow<ID, StakingInfo<T, YT>>(protocol_id);
-        stake_info.total_asset_amount
-    } else {
-        0
-    }
-}
     
 // /// Get the staaking total amount of the given protocol
 // public fun staking_info<YT: store>(self: &AccountProfile, protocol_id: &ID): Option<&StakingInfo<YT>> {
@@ -329,9 +260,9 @@ public fun stake_total_amount<T, YT>(self: &AccountProfile, protocol_id: ID): u6
 //     }
 // }
 
-public fun debt_info(self: &AccountProfile, pool_id: ID): Option<DebtInfo> {
-    self.debts.try_get(&pool_id)
-}
+// public fun debt_info(self: &AccountProfile, pool_id: ID): Option<DebtInfo> {
+//     self.debts.try_get(&pool_id)
+// }
 
 public fun contains_account(self: &AccountRegistry, account_id: ID): bool {
     self.accounts.contains(account_id)
@@ -361,15 +292,7 @@ public fun account_of(self: &AccountProfileCap): ID {
     self.account_id
 }
 
-/// Get staking total amount
-public fun staking_total_amount<T, YT>(self: &StakingInfo<T, YT>): u64 {
-    self.total_asset_amount
-}
 
-/// Get staking type
-public fun staking_asset_type<T, YT>(self: &StakingInfo<T, YT>): TypeName {
-    self.asset_type
-}
 
 /// Validations
 /// Validate the name of `AccountProfile` must be less than MAX_NAME_LENGTH and not empty

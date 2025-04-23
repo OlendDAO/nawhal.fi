@@ -12,6 +12,7 @@ use narval::account_ds::{Self, AccountRegistry, AccountProfileCap};
 use narval::account;
 use narval::liquidity_layer_model::LiquidityLayer;
 use narval::liquidity_layer;
+use narval::lending_protocol::LendingProtocol;
 use narval::admin::AdminCap;
 use narval::ytbtc;
 use narval::ytsui;
@@ -127,16 +128,16 @@ public fun register_asset_vault_for_testing<T, YT>(sc: &mut Scenario, sender: ad
     transfer::public_transfer(vault_cap, sender);
 }
 
-// get shares for testing
-public fun get_shares_for_testing<T, YT>(sc: &mut Scenario, amount: u64, sender: address, lending_protocol_id: ID): Balance<YT> {
-    sc.next_tx(sender);
+// // get shares for testing
+// public fun get_shares_for_testing<T, YT>(sc: &mut Scenario, amount: u64, sender: address, lending_protocol_id: ID): Balance<YT> {
+//     sc.next_tx(sender);
 
-    let mut account_registry = sc.take_shared<AccountRegistry>();
-    let profile_cap = sc.take_from_sender<AccountProfileCap>();
-    let account_id = profile_cap.account_of();
-    let account = account_registry.borrow_account_mut(account_id);
-    let shares = account.take_staking_shares<T, YT>(lending_protocol_id, amount);
-    ts::return_shared(account_registry);
-    sc.return_to_sender(profile_cap);
-    shares
-}
+//     // let mut layer = sc.take_shared<LiquidityLayer>();
+//     let lending_protocol = sc.take_shared_by_id<LendingProtocol<T, YT>>(lending_protocol_id);
+//     let profile_cap = sc.take_from_sender<AccountProfileCap>();
+//     let account_id = profile_cap.account_of();
+
+//     let shares = lending_protocol.get_staking_shares<T, YT>(account_id, amount);
+//     sc.return_to_sender(profile_cap);
+//     shares
+// }

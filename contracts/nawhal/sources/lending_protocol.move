@@ -8,6 +8,8 @@
 
 module narval::lending_protocol;
 
+use std::type_name::{Self, TypeName};
+
 use sui::balance::{Self, Balance};
 use sui::coin::Coin;
 use sui::table::{Self, Table};
@@ -16,25 +18,37 @@ use sui::clock::Clock;
 use narval::admin::AdminCap;
 use narval::liquidity_layer_model::{LiquidityLayer, new_lending_protocol_type};
 use narval::liquidity_layer;
-use narval::account_ds::{AccountProfile, AccountRegistry, AccountProfileCap};
+use narval::account_ds::{AccountRegistry, AccountProfileCap};
 
 // ------- Errors ------- //
 const EInsufficientBalance: u64 = 20001;
 const ESupplyCapReached: u64 = 20002;
-
+const EStakingInfoNotFound: u64 = 20003;
 // ------- Constants ------- //
 // const DEFAULT_SUPPLY_CAP: u64 = 1_000_000_000_000_000_000;
 
 // ------- structs ------- //
 /// Lending protocol is a protocol that allows users to deposit and withdraw assets
-public struct LendingProtocol<phantom T> has key, store {
+public struct LendingProtocol<phantom T, phantom YT> has key, store {
     id: UID,
     supply: u64,
     supply_cap: u64,
-    // Stores (account_id, account_profile) pair
-    stakers: Table<ID, AccountProfile>,
+    // Stores (account_id, StakingInfo<T, YT>) pair
+    stakers: Table<ID, StakingInfo<T, YT>>,
     created_at_ms: u64,
     created_at_epoch: u64,
+}
+
+/// The staking info of a vault
+public struct StakingInfo<phantom T, phantom YT> has store {
+    lending_protocol_id: ID,
+    account_id: ID,
+    asset_type: TypeName,
+    /// The shares after staked 
+    shares: Balance<YT>,
+    /// The total amount of the staking `T
+    total_asset_amount: u64,
+    latest_updated_ms: u64,
 }
 
 // ------- init ------- //
@@ -46,7 +60,7 @@ public struct LendingProtocol<phantom T> has key, store {
 // ------- Logic ------- //
 /// Deposit assets to the protocol
 public fun deposit<T, YT>(
-    self: &mut LendingProtocol<T>, 
+    self: &mut LendingProtocol<T, YT>, 
     liquidity_layer: &mut LiquidityLayer, 
     registry: &mut AccountRegistry, 
     payload: Coin<T>, 
@@ -55,20 +69,26 @@ public fun deposit<T, YT>(
 ) {
     let protocol_id = self.protocol_id();
 
+    let profile = registry.borrow_or_create_profile(clock, ctx);
+    let account_id = profile.account_id();
+
     self.supply = self.supply + payload.value();
 
     assert!(self.supply <= self.supply_cap, ESupplyCapReached);
+
+    let now = clock.timestamp_ms();
+    profile.add_lending_protocol(protocol_id);
+    profile.update_latest_updated_ms(now);
     
     let asset_amount = payload.value();
-    let shares = liquidity_layer::deposit(liquidity_layer, protocol_id, payload.into_balance(), clock, ctx);
+    let shares = liquidity_layer::deposit<T, YT>(liquidity_layer, protocol_id, payload.into_balance(), clock, ctx);
 
-    let profile = registry.borrow_or_create_profile(clock, ctx);
-    profile.add_staking_shares<T, YT>(protocol_id, shares, asset_amount, clock.timestamp_ms());
+    self.add_staking_shares<T, YT>(account_id, shares, asset_amount, now);
 }
 
 /// Withdraw assets from the protocol
 public fun withdraw<T, YT>(
-    self: &mut LendingProtocol<T>, 
+    self: &mut LendingProtocol<T, YT>, 
     liquidity_layer: &mut LiquidityLayer, 
     registry: &mut AccountRegistry, 
     cap: &AccountProfileCap,
@@ -80,12 +100,19 @@ public fun withdraw<T, YT>(
         return balance::zero<T>()
     };
 
-    let protocol_id = self.protocol_id();
     let account_id = cap.account_of();
+    check_staking_info_exists(self, account_id);
+
+    let protocol_id = self.protocol_id();
+    
     let profile = registry.borrow_account_mut(account_id);
 
+    let now = clock.timestamp_ms();
+    // profile.add_lending_protocol(protocol_id);
+    profile.update_latest_updated_ms(now);
+
     // 1. Check recorded stake amount (value)
-    let stake_total_amount = profile.stake_total_amount<T, YT>(protocol_id);
+    let stake_total_amount = self.staking_total_amount<T, YT>(account_id);
     check_stake_total_amount_greater_than_or_equal_to_amount(stake_total_amount, amount);
 
     // 2. Calculate/Determine shares to withdraw
@@ -94,10 +121,10 @@ public fun withdraw<T, YT>(
 
     // 3. Take the corresponding shares (Balance<YT>) from the profile
     // This will abort with ENotEnough if actual shares are insufficient.
-    let shares_to_withdraw_balance = profile.take_staking_shares<T, YT>(protocol_id, shares_amount_to_take); 
+    let shares_to_withdraw_balance = self.take_staking_shares<T, YT>(account_id, shares_amount_to_take); 
 
     // 4. Update the profile's recorded total_asset_amount (value)
-    profile.sub_staking_value<T, YT>(protocol_id, amount);
+    self.sub_staking_value<T, YT>(account_id, amount);
 
     // 5. Withdraw from Liquidity Layer using the taken shares
     let withdrawn_balance_t = liquidity_layer::withdraw<T, YT>(liquidity_layer, protocol_id, shares_to_withdraw_balance, clock, ctx);
@@ -109,13 +136,13 @@ public fun withdraw<T, YT>(
 /// ------- Governance ------- //
 /// Register a new lending protocol to LiquidityLayer
 /// Returns the ID of the newly created protocol object.
-public fun register_lending_protocol<T>(
+public fun register_lending_protocol<T, YT>(
     liquidity_layer: &mut LiquidityLayer, 
     admin_cap: &AdminCap, 
     supply_cap: u64, 
     ctx: &mut TxContext
 ): ID { // Return the ID
-    let lending_protocol = new_lending_protocol<T>(supply_cap, ctx);
+    let lending_protocol = new_lending_protocol<T, YT>(supply_cap, ctx);
     let protocol_id = lending_protocol.protocol_id(); // Get ID before sharing
 
     liquidity_layer::register_protocol<T>(liquidity_layer, admin_cap, protocol_id, new_lending_protocol_type(), ctx);
@@ -126,7 +153,7 @@ public fun register_lending_protocol<T>(
 
 // ------- new structs ------- //
 /// New a new LendingProtocol
-public fun new_lending_protocol<T>(supply_cap: u64, ctx: &mut TxContext): LendingProtocol<T> {
+public fun new_lending_protocol<T, YT>(supply_cap: u64, ctx: &mut TxContext): LendingProtocol<T, YT> {
     LendingProtocol {
         id: object::new(ctx),
         supply: 0,
@@ -137,13 +164,107 @@ public fun new_lending_protocol<T>(supply_cap: u64, ctx: &mut TxContext): Lendin
     }
 }
 
+/// New a new StakingInfo
+public fun new_staking_info<T, YT>(
+    lending_protocol_id: ID,
+    account_id: ID,
+    total_asset_amount: u64,
+    shares: Balance<YT>,
+    latest_updated_ms: u64,
+): StakingInfo<T, YT> {
+    StakingInfo {
+        lending_protocol_id,
+        account_id,
+        asset_type: type_name::get<T>(),
+        shares,
+        total_asset_amount,
+        latest_updated_ms,
+    }
+}
+
 // ------- Checks ------- //
 public fun check_stake_total_amount_greater_than_or_equal_to_amount(stake_total_amount: u64, amount: u64) {
     assert!(stake_total_amount >= amount, EInsufficientBalance);
 }
 
+public fun check_staking_info_exists<T, YT>(self: &LendingProtocol<T, YT>, account_id: ID) {
+    assert!(self.stakers.contains(account_id), EStakingInfoNotFound);
+}
+
 // ------- Getters ------- //
-public fun protocol_id<T>(self: &LendingProtocol<T>): ID {
+public fun protocol_id<T, YT>(self: &LendingProtocol<T, YT>): ID {
     object::id(self)
 }
 
+/// Get staking total amount
+public fun total_asset_amount<T, YT>(self: &StakingInfo<T, YT>): u64 {
+    self.total_asset_amount
+}
+
+/// Get shares value
+public fun shares_value<T, YT>(self: &StakingInfo<T, YT>): u64 {
+    self.shares.value()
+}
+
+/// Get staking type
+public fun staking_asset_type<T, YT>(self: &StakingInfo<T, YT>): TypeName {
+    self.asset_type
+}
+
+/// Get the staking total amount of the protocol id
+/// Returns 0 if the protocol id does not exist
+public fun staking_total_amount<T, YT>(self: &LendingProtocol<T, YT>, account_id: ID): u64 {
+    if (self.stakers.contains(account_id)) {
+        let stake_info = self.stakers.borrow<ID, StakingInfo<T, YT>>(account_id);
+        stake_info.total_asset_amount()
+    } else {
+        0
+    }
+}
+
+/// Borrow the staking info
+public fun borrow_staking_info<T, YT>(self: &LendingProtocol<T, YT>, account_id: ID): &StakingInfo<T, YT> {
+    self.stakers.borrow<ID, StakingInfo<T, YT>>(account_id)
+}
+
+// ------- Setters ------- //
+/// Add the staking infos to the account profile, including shares
+public(package) fun add_staking_shares<T, YT>(
+    self: &mut LendingProtocol<T, YT>, 
+    account_id: ID, 
+    shares: Balance<YT>, 
+    total_asset_amount: u64, 
+    latest_updated_ms: u64
+) {
+    let protocol_id = self.protocol_id();
+
+    if (self.stakers.contains(account_id)) {
+        let stakes = self.stakers.borrow_mut<ID, StakingInfo<T, YT>>(account_id);
+        stakes.shares.join(shares);
+        stakes.total_asset_amount = stakes.total_asset_amount + total_asset_amount;
+    } else {
+        self.stakers.add(account_id, new_staking_info<T, YT>(protocol_id, 
+        account_id, total_asset_amount, shares, latest_updated_ms));
+    }
+}
+
+/// Take shares from the staking info.
+/// Abort if the shares are less than the amount to take
+public(package) fun take_staking_shares<T, YT>(self: &mut LendingProtocol<T, YT>, account_id: ID, amount: u64): Balance<YT> {
+    let stakes = self.stakers.borrow_mut<ID, StakingInfo<T, YT>>(account_id);
+    stakes.shares.split(amount)
+}
+
+/// Subtract the staking value
+/// Abort if the staking value is less than the value to subtract or the staking info does not exist
+public(package) fun sub_staking_value<T, YT>(self: &mut LendingProtocol<T, YT>, account_id: ID, value: u64) {
+    let stakes = self.stakers.borrow_mut<ID, StakingInfo<T, YT>>(account_id);
+
+    stakes.total_asset_amount = stakes.total_asset_amount - value;
+}
+
+/// Remove staking info
+/// Abort if the staking info does not exist
+public(package) fun remove_staking_info<T, YT>(self: &mut LendingProtocol<T, YT>, account_id: ID): StakingInfo<T, YT> {
+    self.stakers.remove(account_id)
+}

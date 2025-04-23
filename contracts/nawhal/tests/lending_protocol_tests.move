@@ -22,13 +22,13 @@ use narval::common_tests::{Self as ct, alice, TBTC, TSUI};
 
 // Setup: Initializes LiquidityLayer, AccountRegistry, and registers the LendingProtocol
 // Returns the ID of the registered LendingProtocol<T>
-fun setup_lending_protocol<T>(sc: &mut Scenario, sender: address, supply_cap: u64): ID {
+fun setup_lending_protocol<T, YT>(sc: &mut Scenario, sender: address, supply_cap: u64): ID {
     sc.next_tx(sender);
     let mut layer = sc.take_shared<LiquidityLayer>();
     let admin_cap = sc.take_from_sender<AdminCap>();
 
     // Call the combined registration function which returns the ID
-    let protocol_id = lending_protocol::register_lending_protocol<T>(&mut layer, &admin_cap, supply_cap, sc.ctx());
+    let protocol_id = lending_protocol::register_lending_protocol<T, YT>(&mut layer, &admin_cap, supply_cap, sc.ctx());
 
     ts::return_shared(layer);
     sc.return_to_sender(admin_cap);
@@ -40,7 +40,7 @@ fun deposit_helper<T, YT>(sc: &mut Scenario, protocol_id: ID, amount: u64, sende
     let deposit_coin = coin::mint_for_testing<T>(amount, sc.ctx());
 
     sc.next_tx(sender);
-    let mut protocol = sc.take_shared_by_id<LendingProtocol<T>>(protocol_id);
+    let mut protocol = sc.take_shared_by_id<LendingProtocol<T, YT>>(protocol_id);
     let mut layer = sc.take_shared<LiquidityLayer>();
     let mut registry = sc.take_shared<AccountRegistry>();
     let clock = sc.take_shared<Clock>();
@@ -61,7 +61,7 @@ fun withdraw_helper<T, YT>(
     sender: address
 ): Balance<T> {
     sc.next_tx(sender);
-    let mut protocol = sc.take_shared_by_id<LendingProtocol<T>>(protocol_id);
+    let mut protocol = sc.take_shared_by_id<LendingProtocol<T, YT>>(protocol_id);
     let mut layer = sc.take_shared<LiquidityLayer>();
     let mut registry = sc.take_shared<AccountRegistry>();
     let profile_cap = sc.take_from_sender<AccountProfileCap>();
@@ -94,7 +94,7 @@ fun check_state_after_op<T, YT>(
 
     assert_eq(layer.vault_cash_balance<T, YT>(), expected_layer_balance);
     // Check protocol amount using the known protocol ID
-    // let protocol_obj = sc.take_shared_by_id<LendingProtocol<T>>(protocol_id);
+    let protocol = sc.take_shared_by_id<LendingProtocol<T, YT>>(protocol_id);
     // let actual_protocol_id = protocol_obj.protocol_id();
     // assert!(actual_protocol_id == protocol_id, 99); // Sanity check
 
@@ -108,17 +108,17 @@ fun check_state_after_op<T, YT>(
 
     let mut registry = sc.take_shared<AccountRegistry>();
     let profile_cap = sc.take_from_sender<AccountProfileCap>();
-    let profile = registry.borrow_account_mut(profile_cap.account_of());
+    // let profile = registry.borrow_account_mut(profile_cap.account_of());
     // Use the known protocol ID directly
     // let protocol_obj = sc.take_shared_by_id<LendingProtocol<T>>(protocol_id); // Take again as it was returned
     // let actual_protocol_id = protocol_obj.protocol_id(); // Get ID here
     // assert!(actual_protocol_id == protocol_id, 98); // Sanity check
     
-    assert_eq(profile.stake_total_amount<T, YT>(protocol_id), expected_profile_stake);
+    assert_eq(protocol.staking_total_amount<T, YT>(profile_cap.account_of()), expected_profile_stake);
     
     sc.return_to_sender(profile_cap);
     ts::return_shared(registry);
-    // ts::return_shared(protocol_obj); // Not needed when taking by ID
+    ts::return_shared(protocol); // Not needed when taking by ID
 }
 
 // === Test Functions ===
@@ -135,7 +135,7 @@ fun test_lending_protocol_deposit() {
     ct::register_asset_vault_for_testing<TBTC, YTBTC>(sc, alice());
     ct::init_account_registry_for_testing(sc, alice());
 
-    let btc_protocol_id = setup_lending_protocol<TBTC>(sc, alice(), 1_000_000_000_000_000_000);
+    let btc_protocol_id = setup_lending_protocol<TBTC, YTBTC>(sc, alice(), 1_000_000_000_000_000_000);
 
     let deposit_amount = 1_000_000_000;
     deposit_helper<TBTC, YTBTC>(sc, btc_protocol_id, deposit_amount, alice());
@@ -167,8 +167,8 @@ fun test_multiple_deposits_and_withdrawals() {
     // These calls will internally register vaults first, then the protocol.
     // Ensure Alice has AdminCap and necessary TreasuryCaps before these calls.
     // Assuming init_ytbtc_and_ytsui_for_testing provides TreasuryCaps implicitly to sender.
-    let btc_protocol_id = setup_lending_protocol<TBTC>(sc, alice_addr, 1_000_000_000_000_000_000); // 1e18 cap for BTC
-    let sui_protocol_id = setup_lending_protocol<TSUI>(sc, alice_addr, 5_000_000_000_000_000_000); // 5e18 cap for SUI
+    let btc_protocol_id = setup_lending_protocol<TBTC, YTBTC>(sc, alice_addr, 1_000_000_000_000_000_000); // 1e18 cap for BTC
+    let sui_protocol_id = setup_lending_protocol<TSUI, YTSUI>(sc, alice_addr, 5_000_000_000_000_000_000); // 5e18 cap for SUI
 
     // --- Operations ---
     // 1. Deposit TBTC
@@ -225,7 +225,7 @@ fun test_lending_protocol_withdraw_insufficient() {
     ct::register_asset_vault_for_testing<TBTC, YTBTC>(sc, alice());
     ct::init_account_registry_for_testing(sc, alice());
 
-    let btc_protocol_id = setup_lending_protocol<TBTC>(sc, alice(), 1_000_000_000_000_000_000);
+    let btc_protocol_id = setup_lending_protocol<TBTC, YTBTC>(sc, alice(), 1_000_000_000_000_000_000);
 
     let deposit_amount = 1_000_000_000;
     deposit_helper<TBTC, YTBTC>(sc, btc_protocol_id, deposit_amount, alice());
@@ -251,7 +251,7 @@ fun test_lending_protocol_deposit_exceeds_supply_cap() {
     ct::register_asset_vault_for_testing<TBTC, YTBTC>(sc, alice());
     ct::init_account_registry_for_testing(sc, alice());
 
-    let btc_protocol_id = setup_lending_protocol<TBTC>(sc, alice(), 1_000_000_000_000_000_000);
+    let btc_protocol_id = setup_lending_protocol<TBTC, YTBTC>(sc, alice(), 1_000_000_000_000_000_000);
     
     let deposit_amount = 1_000_000_000_000_000_000 + 1;
     deposit_helper<TBTC, YTBTC>(sc, btc_protocol_id, deposit_amount, alice());
