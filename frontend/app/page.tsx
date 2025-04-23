@@ -274,6 +274,19 @@ export default function Home() {
                   Sign & Verify Transaction
                 </button>
               )}
+              
+              <a 
+                href="/lending" 
+                className="mt-8 text-center bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
+              >
+                测试借贷功能
+              </a>
+              <a 
+                href="/object" 
+                className="mt-4 text-center bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded"
+              >
+                查看账户对象
+              </a>
             </div>
           </div>
         )}
