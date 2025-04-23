@@ -3,6 +3,7 @@ name = "narval"
 edition = "2024.beta" # edition = "legacy" to use legacy (pre-2024) Move
 # license = ""           # e.g., "MIT", "GPL", "Apache 2.0"
 # authors = ["..."]      # e.g., ["Joe Smith (joesmith@noemail.com)", "John Snow (johnsnow@noemail.com)"]
+published-at = "0x891b34e2e9d6976f42a40520d862d69e1030969670c5f5f11aad3dce3a374255"
 
 [dependencies]
 # Sui = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/sui-framework", rev = "framework/testnet" }
@@ -19,7 +20,7 @@ Sui = { local = "../../../../movecodes/sui/crates/sui-framework/packages/sui-fra
 # Override = { local = "../conflicting/version", override = true }
 
 [addresses]
-narval = "0x0"
+narval = "0x891b34e2e9d6976f42a40520d862d69e1030969670c5f5f11aad3dce3a374255"
 
 # Named addresses will be accessible in Move as `@name`. They're also exported:
 # for example, `std = "0x1"` is exported by the Standard Library.
