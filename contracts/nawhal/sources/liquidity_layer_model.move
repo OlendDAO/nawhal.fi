@@ -41,7 +41,6 @@ public struct LiquidityLayer has key {
     // Swap price TODO:
 }
 
-
 public struct ProtocolConfig has copy, drop, store {
     protocol_id: ID,
     asset_type: TypeName,
@@ -225,38 +224,6 @@ public fun layer_id(self: &LiquidityLayer): ID {
 public fun layer_status(self: &LiquidityLayer): LiquidityStatus {
     self.status
 }
-
-// /// Get the total_deposits of the given asset type
-// public fun total_deposits<T>(self: &LiquidityLayer): u64 {
-//     let liquidity_vault_id = self.vault_id_of_asset<T>();
-//     self.liquidity_vaults
-//         .borrow<ID, LiquidityVault<T>>(liquidity_vault_id)
-//         .total_deposits
-// }
-
-// /// Get the total_collateral of the given asset type
-// public fun total_collateral<T>(self: &LiquidityLayer): u64 {
-//     let liquidity_vault_id = self.vault_id_of_asset<T>();
-//     self.liquidity_vaults
-//         .borrow<ID, LiquidityVault<T>>(liquidity_vault_id)
-//         .total_collateral
-// }
-
-// /// Get the total_in of the given asset type
-// public fun total_in<T>(self: &LiquidityLayer): u64 {
-//     let liquidity_vault_id = self.vault_id_of_asset<T>();
-//     self.liquidity_vaults
-//         .borrow<ID, LiquidityVault<T>>(liquidity_vault_id)
-//         .cumulative_in
-// }
-
-// /// Get the total_out of the given asset type
-// public fun total_out<T>(self: &LiquidityLayer): u64 {
-//     let liquidity_vault_id = self.vault_id_of_asset<T>();
-//     self.liquidity_vaults
-//         .borrow<ID, LiquidityVault<T>>(liquidity_vault_id)
-//         .cumulative_out
-// }
 
 /// Get the LiquidityVault id of the given asset type
 public fun vault_id_of_asset<T>(self: &LiquidityLayer): ID {

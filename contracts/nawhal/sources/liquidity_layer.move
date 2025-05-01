@@ -19,6 +19,7 @@ use sui::balance::{Self, Balance};
 use sui::clock::Clock;
 use sui::coin::{Self, Coin, TreasuryCap};
 
+// use narval::account_ds::AccountProfileCap;
 use narval::admin::{Self, AdminCap};
 use narval::liquidity_layer_model::{Self, LiquidityLayer, ProtocolType};
 use narval::liquidity_event;
@@ -117,6 +118,21 @@ public entry fun withdraw_api<T, YT>(self: &mut LiquidityLayer, protocol_id: ID,
     transfer::public_transfer(coin::from_balance<T>(withdrawn_balance_t, ctx), ctx.sender());
 }
 
+// /// Take shares from the LiquidityLayer
+// public fun take_shares<T, YT>(
+//     self: &mut LiquidityLayer, 
+//     amount_of_shares: u64, 
+//     account_cap: &AccountProfileCap, 
+//     clock: &Clock, 
+//     ctx: &mut TxContext
+// ): Balance<YT> {
+//     let vault_id = self.vault_id_of_asset<T>();
+//     let stake_info = account_cap.borrow_staking_info_mut<T, YT>(vault_id);
+//     let shares = balance::split(stake_info.shares, amount_of_shares);
+//     let withdrawn_balance_t = withdraw<T, YT>(self, vault_id, shares, clock, ctx);
+//     withdrawn_balance_t
+// }
+
 // ------- Governance functions ------- //
 /// Register a new asset vault to the LiquidityLayer.
 /// 
@@ -144,6 +160,7 @@ public(package) fun register_asset_vault<T, YT>(self: &mut LiquidityLayer, lp_tr
 
     vault_cap
 }
+
 
 /// Register a new asset vault to the LiquidityLayer by AdminCap
 public fun register_vault_by_admin_cap<T, YT>(
