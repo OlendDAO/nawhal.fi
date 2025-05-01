@@ -19,6 +19,7 @@ use narval::admin::AdminCap;
 use narval::liquidity_layer_model::{LiquidityLayer, new_lending_protocol_type};
 use narval::liquidity_layer;
 use narval::account_ds::{AccountRegistry, AccountProfileCap};
+use narval::position::{Self, StakingInfo};
 
 // ------- Errors ------- //
 const EInsufficientBalance: u64 = 20001;
@@ -37,18 +38,6 @@ public struct LendingProtocol<phantom T, phantom YT> has key, store {
     stakers: Table<ID, StakingInfo<T, YT>>,
     created_at_ms: u64,
     created_at_epoch: u64,
-}
-
-/// The staking info of a vault
-public struct StakingInfo<phantom T, phantom YT> has store {
-    lending_protocol_id: ID,
-    account_id: ID,
-    asset_type: TypeName,
-    /// The shares after staked 
-    shares: Balance<YT>,
-    /// The total amount of the staking `T
-    total_asset_amount: u64,
-    latest_updated_ms: u64,
 }
 
 // ------- init ------- //
@@ -148,16 +137,24 @@ public fun withdraw<T, YT>(
 
     // 3. Take the corresponding shares (Balance<YT>) from the profile
     // This will abort with ENotEnough if actual shares are insufficient.
-    let shares_to_withdraw_balance = self.take_staking_shares<T, YT>(account_id, shares_amount_to_take); 
+    let shares_to_withdraw_balance = self.take_staking_shares<T, YT>(account_id, shares_amount_to_take, now); 
 
-    // 4. Update the profile's recorded total_asset_amount (value)
-    self.sub_staking_value<T, YT>(account_id, amount);
-
-    // 5. Withdraw from Liquidity Layer using the taken shares
+    // 4. Withdraw from Liquidity Layer using the taken shares
     let withdrawn_balance_t = liquidity_layer::withdraw<T, YT>(liquidity_layer, protocol_id, shares_to_withdraw_balance, clock, ctx);
     
-    // 6. Return the actual withdrawn Balance<T>
+    // 5. Return the actual withdrawn Balance<T>
     withdrawn_balance_t
+}
+
+/// Withdraw shares from the protocol
+public fun withdraw_shares<T, YT>(
+    self: &mut LendingProtocol<T, YT>, 
+    account_cap: &AccountProfileCap,
+    amount: u64,
+    clock: &Clock,
+    _ctx: &mut TxContext
+): Balance<YT> {
+    self.take_staking_shares<T, YT>(account_cap.account_of(), amount, clock.timestamp_ms())
 }
 
 /// ------- Governance ------- //
@@ -201,24 +198,6 @@ public fun new_lending_protocol<T, YT>(supply_cap: u64, ctx: &mut TxContext): Le
     }
 }
 
-/// New a new StakingInfo
-public fun new_staking_info<T, YT>(
-    lending_protocol_id: ID,
-    account_id: ID,
-    total_asset_amount: u64,
-    shares: Balance<YT>,
-    latest_updated_ms: u64,
-): StakingInfo<T, YT> {
-    StakingInfo {
-        lending_protocol_id,
-        account_id,
-        asset_type: type_name::get<T>(),
-        shares,
-        total_asset_amount,
-        latest_updated_ms,
-    }
-}
-
 // ------- Checks ------- //
 public fun check_stake_total_amount_greater_than_or_equal_to_amount(stake_total_amount: u64, amount: u64) {
     assert!(stake_total_amount >= amount, EInsufficientBalance);
@@ -231,21 +210,6 @@ public fun check_staking_info_exists<T, YT>(self: &LendingProtocol<T, YT>, accou
 // ------- Getters ------- //
 public fun protocol_id<T, YT>(self: &LendingProtocol<T, YT>): ID {
     object::id(self)
-}
-
-/// Get staking total amount
-public fun total_asset_amount<T, YT>(self: &StakingInfo<T, YT>): u64 {
-    self.total_asset_amount
-}
-
-/// Get shares value
-public fun shares_value<T, YT>(self: &StakingInfo<T, YT>): u64 {
-    self.shares.value()
-}
-
-/// Get staking type
-public fun staking_asset_type<T, YT>(self: &StakingInfo<T, YT>): TypeName {
-    self.asset_type
 }
 
 /// Get the staking total amount of the protocol id
@@ -264,6 +228,11 @@ public fun borrow_staking_info<T, YT>(self: &LendingProtocol<T, YT>, account_id:
     self.stakers.borrow<ID, StakingInfo<T, YT>>(account_id)
 }
 
+/// Borrow mut the staking info
+public fun borrow_staking_info_mut<T, YT>(self: &mut LendingProtocol<T, YT>, account_id: ID): &mut StakingInfo<T, YT> {
+    self.stakers.borrow_mut<ID, StakingInfo<T, YT>>(account_id)
+}
+
 // ------- Setters ------- //
 /// Add the staking infos to the account profile, including shares
 public(package) fun add_staking_shares<T, YT>(
@@ -277,28 +246,30 @@ public(package) fun add_staking_shares<T, YT>(
 
     if (self.stakers.contains(account_id)) {
         let stakes = self.stakers.borrow_mut<ID, StakingInfo<T, YT>>(account_id);
-        stakes.shares.join(shares);
-        stakes.total_asset_amount = stakes.total_asset_amount + total_asset_amount;
+        stakes.add_shares(shares, latest_updated_ms);
+        stakes.add_asset_amount(total_asset_amount);
     } else {
-        self.stakers.add(account_id, new_staking_info<T, YT>(protocol_id, 
+        self.stakers.add(account_id, position::new_staking_info<T, YT>(protocol_id, 
         account_id, total_asset_amount, shares, latest_updated_ms));
     }
+
 }
 
 /// Take shares from the staking info.
 /// Abort if the shares are less than the amount to take
-public(package) fun take_staking_shares<T, YT>(self: &mut LendingProtocol<T, YT>, account_id: ID, amount: u64): Balance<YT> {
-    let stakes = self.stakers.borrow_mut<ID, StakingInfo<T, YT>>(account_id);
-    stakes.shares.split(amount)
+public(package) fun take_staking_shares<T, YT>(self: &mut LendingProtocol<T, YT>, account_id: ID, amount: u64, timestamp_ms: u64): Balance<YT> {
+    let stake_info = self.stakers.borrow_mut<ID, StakingInfo<T, YT>>(account_id);
+    
+    stake_info.take_shares(amount, timestamp_ms)
 }
 
-/// Subtract the staking value
-/// Abort if the staking value is less than the value to subtract or the staking info does not exist
-public(package) fun sub_staking_value<T, YT>(self: &mut LendingProtocol<T, YT>, account_id: ID, value: u64) {
-    let stakes = self.stakers.borrow_mut<ID, StakingInfo<T, YT>>(account_id);
+// /// Subtract the staking value
+// /// Abort if the staking value is less than the value to subtract or the staking info does not exist
+// public(package) fun sub_staking_value<T, YT>(self: &mut LendingProtocol<T, YT>, account_id: ID, value: u64) {
+//     let stakes = self.stakers.borrow_mut<ID, StakingInfo<T, YT>>(account_id);
 
-    stakes.total_asset_amount = stakes.total_asset_amount - value;
-}
+//     stakes.sub_asset_amount(value);
+// }
 
 /// Remove staking info
 /// Abort if the staking info does not exist
