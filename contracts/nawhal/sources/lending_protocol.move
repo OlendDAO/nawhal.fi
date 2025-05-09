@@ -8,7 +8,6 @@
 
 module narval::lending_protocol;
 
-use std::type_name::{Self, TypeName};
 
 use sui::balance::{Self, Balance};
 use sui::coin::{Self, Coin};
@@ -25,6 +24,7 @@ use narval::position::{Self, StakingInfo};
 const EInsufficientBalance: u64 = 20001;
 const ESupplyCapReached: u64 = 20002;
 const EStakingInfoNotFound: u64 = 20003;
+
 // ------- Constants ------- //
 // const DEFAULT_SUPPLY_CAP: u64 = 1_000_000_000_000_000_000;
 
@@ -68,7 +68,8 @@ public fun deposit<T, YT>(
     let now = clock.timestamp_ms();
     profile.add_lending_protocol(protocol_id);
     profile.update_latest_updated_ms(now);
-    
+
+
     let asset_amount = payload.value();
     let shares = liquidity_layer::deposit<T, YT>(liquidity_layer, protocol_id, payload.into_balance(), clock, ctx);
 
@@ -247,7 +248,6 @@ public(package) fun add_staking_shares<T, YT>(
     if (self.stakers.contains(account_id)) {
         let stakes = self.stakers.borrow_mut<ID, StakingInfo<T, YT>>(account_id);
         stakes.add_shares(shares, latest_updated_ms);
-        stakes.add_asset_amount(total_asset_amount);
     } else {
         self.stakers.add(account_id, position::new_staking_info<T, YT>(protocol_id, 
         account_id, total_asset_amount, shares, latest_updated_ms));
@@ -257,19 +257,16 @@ public(package) fun add_staking_shares<T, YT>(
 
 /// Take shares from the staking info.
 /// Abort if the shares are less than the amount to take
-public(package) fun take_staking_shares<T, YT>(self: &mut LendingProtocol<T, YT>, account_id: ID, amount: u64, timestamp_ms: u64): Balance<YT> {
-    let stake_info = self.stakers.borrow_mut<ID, StakingInfo<T, YT>>(account_id);
+public(package) fun take_staking_shares<T, YT>(
+    self: &mut LendingProtocol<T, YT>, 
+    account_id: ID, 
+    amount: u64, 
+    timestamp_ms: u64
+): Balance<YT> {
+    let stake_info = self.borrow_staking_info_mut<T, YT>(account_id);
     
     stake_info.take_shares(amount, timestamp_ms)
 }
-
-// /// Subtract the staking value
-// /// Abort if the staking value is less than the value to subtract or the staking info does not exist
-// public(package) fun sub_staking_value<T, YT>(self: &mut LendingProtocol<T, YT>, account_id: ID, value: u64) {
-//     let stakes = self.stakers.borrow_mut<ID, StakingInfo<T, YT>>(account_id);
-
-//     stakes.sub_asset_amount(value);
-// }
 
 /// Remove staking info
 /// Abort if the staking info does not exist

@@ -57,8 +57,9 @@ public struct AccountProfile has key, store {
     name: String,
     // Store (lending_protocol_id) pair
     lendings: VecSet<ID>,
-    // Store (lending_protocol_id, debt_info) pair
-    // debts: VecMap<ID, DebtInfo>,
+    // Store (vault_protocol_id) pair
+    vaults: VecSet<ID>,
+
     latest_updated_ms: u64,
     status: AccountProfileStatus,
 }
@@ -102,6 +103,7 @@ public fun new_profile(
         id: object::new(ctx),
         name,
         lendings: vec_set::empty(),
+        vaults: vec_set::empty(),
         latest_updated_ms: created_at_ms,
         status: AccountProfileStatus::Active,
     };

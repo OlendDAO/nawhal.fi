@@ -283,7 +283,7 @@ public(package) fun get_protocol_mut(self: &mut LiquidityLayer, protocol_id: &ID
 /// Get the asset balance of the given asset type.
 public fun vault_cash_balance<T, YT>(self: &LiquidityLayer): u64 {
     let liquidity_vault = self.borrow_vault<T, YT>();
-    liquidity_vault.free_balance_value()
+    liquidity_vault.cash_value()
 }
 
 // ------- Setters ------- //
