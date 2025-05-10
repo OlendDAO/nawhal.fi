@@ -3,3 +3,5 @@ build/
 *.bak
 
 *.lock
+
+fluid-contracts-public
