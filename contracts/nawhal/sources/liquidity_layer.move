@@ -98,7 +98,7 @@ public fun withdraw<T, YT>(self: &mut LiquidityLayer, protocol_id: ID, shares: B
     // let shares_value_for_event = shares.value(); // Keep for event
 
     // Withdraw from vault using shares
-    let withdrawn_balance_t = self.withdraw_from_liquidity_vault<T, YT>( shares, clock);
+    let withdrawn_balance_t = self.withdraw_from_liquidity_vault<T, YT>(shares, clock);
     let withdrawn_value = withdrawn_balance_t.value(); // Get the actual withdrawn asset value
 
     // Decrement the protocol amount using the ACTUAL withdrawn asset value
@@ -117,21 +117,6 @@ public entry fun withdraw_api<T, YT>(self: &mut LiquidityLayer, protocol_id: ID,
     
     transfer::public_transfer(coin::from_balance<T>(withdrawn_balance_t, ctx), ctx.sender());
 }
-
-// /// Take shares from the LiquidityLayer
-// public fun take_shares<T, YT>(
-//     self: &mut LiquidityLayer, 
-//     amount_of_shares: u64, 
-//     account_cap: &AccountProfileCap, 
-//     clock: &Clock, 
-//     ctx: &mut TxContext
-// ): Balance<YT> {
-//     let vault_id = self.vault_id_of_asset<T>();
-//     let stake_info = account_cap.borrow_staking_info_mut<T, YT>(vault_id);
-//     let shares = balance::split(stake_info.shares, amount_of_shares);
-//     let withdrawn_balance_t = withdraw<T, YT>(self, vault_id, shares, clock, ctx);
-//     withdrawn_balance_t
-// }
 
 // ------- Governance functions ------- //
 /// Register a new asset vault to the LiquidityLayer.

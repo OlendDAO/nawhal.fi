@@ -130,7 +130,7 @@ public struct StrategyWithdrawInfo<phantom T> has store {
 }
 
 public struct WithdrawTicket<phantom T, phantom YT> {
-    to_withdraw_from_free_balance: u64,
+    to_withdraw_from_cash_balance: u64,
     strategy_infos: VecMap<ID, StrategyWithdrawInfo<T>>,
     lp_to_burn: Balance<YT>,
 }
@@ -180,7 +180,9 @@ public struct StrategyState has store {
 public struct LiquidityVault<phantom T, phantom YT> has key, store {
     id: UID,
     /// balance that's not allocated to any strategy
-    free_balance: Balance<T>,
+    cash_balance: Balance<T>,
+    // loan out amount
+    loan_amount: u64,
     /// slowly distribute profits over time to avoid sandwitch attacks on rebalance
     time_locked_profit: TimeLockedBalance<T>,
     /// treasury of the vault's yield-bearing token
@@ -212,7 +214,8 @@ public(package) fun new<T, YT>(
     let vault = LiquidityVault<T, YT> {
         id: object::new(ctx),
 
-        free_balance: balance::zero(),
+        cash_balance: balance::zero(),
+        loan_amount: 0,
         time_locked_profit: tlb::create(balance::zero(), 0, 0),
         lp_treasury, 
         strategies: vec_map::empty(),
@@ -226,7 +229,6 @@ public(package) fun new<T, YT>(
 
         version: MODULE_VERSION,
     };
-    // transfer::share_object(vault);
 
     // since there can be only one `TreasuryCap<YT>` for type `YT`, there can be only
     // one `LiquidityVault<T, YT>` and `AdminCap<YT>` for type `YT` as well.
@@ -235,11 +237,6 @@ public(package) fun new<T, YT>(
     };
     (vault, admin_cap)
 }
-
-// fun assert_upgrade_cap(cap: &UpgradeCap) {
-//     let cap_id = @0x816949d764f3285c0420e9375c2594ca01355d1e05670b242ff5bfcf4c5fc958;
-//     assert!(object::id_address(cap) == cap_id, EInvalidUpgradeCap);
-// }
 
 // Creates a new `LiquidityVault` using the `AdminCap`.
 public fun new_with_admin_cap<T, YT>(
@@ -254,8 +251,8 @@ fun assert_version<T, YT>(vault: &LiquidityVault<T, YT>) {
 
 /* ================= read ================= */
 
-public fun free_balance<T, YT>(vault: &LiquidityVault<T, YT>): u64 {
-    balance::value(&vault.free_balance)
+public fun cash_value<T, YT>(vault: &LiquidityVault<T, YT>): u64 {
+    balance::value(&vault.cash_balance)
 }
 
 public fun tvl_cap<T, YT>(vault: &LiquidityVault<T, YT>): Option<u64> {
@@ -265,7 +262,7 @@ public fun tvl_cap<T, YT>(vault: &LiquidityVault<T, YT>): Option<u64> {
 public fun total_available_balance<T, YT>(vault: &LiquidityVault<T, YT>, clock: &Clock): u64 {
     let mut total: u64 = 0;
 
-    total = total + balance::value(&vault.free_balance);
+    total = total + balance::value(&vault.cash_balance);
     total = total + tlb::max_withdrawable(&vault.time_locked_profit, clock);
 
     let mut i = 0;
@@ -314,12 +311,12 @@ public fun withdraw_performance_fee<T, YT>(
     balance::split(&mut vault.performance_fee_balance, amount)
 }
 
-entry fun pull_unlocked_profits_to_free_balance<T, YT>(
+entry fun pull_unlocked_profits_to_cash_balance<T, YT>(
     _cap: &VaultCap<YT>, vault: &mut LiquidityVault<T, YT>, clock: &Clock
 ) {
     assert_version(vault);
     balance::join(
-        &mut vault.free_balance,
+        &mut vault.cash_balance,
         tlb::withdraw_all(&mut vault.time_locked_profit, clock),
     );
 }
@@ -413,7 +410,7 @@ public fun remove_strategy<T, YT>(
         );
         tlb::top_up(&mut vault.time_locked_profit, profit, clock);
     };
-    balance::join(&mut vault.free_balance, returned_balance);
+    balance::join(&mut vault.cash_balance, returned_balance);
 
     // remove from withdraw priority order
     let (has, idx) = vector::index_of(&vault.strategy_withdraw_priority_order, id);
@@ -454,8 +451,8 @@ public fun deposit<T, YT>(
         );
         let skimmed = tlb::skim_extraneous_balance(&mut vault.time_locked_profit);
         let withdrawn = tlb::withdraw_all(&mut vault.time_locked_profit, clock);
-        balance::join(&mut vault.free_balance, skimmed);
-        balance::join(&mut vault.free_balance, withdrawn);
+        balance::join(&mut vault.cash_balance, skimmed);
+        balance::join(&mut vault.cash_balance, withdrawn);
 
         // appropriate everything to performance fees
         let total_available_balance = total_available_balance(vault, clock);
@@ -489,7 +486,7 @@ public fun deposit<T, YT>(
         lp_minted: lp_amount,
     });
 
-    balance::join(&mut vault.free_balance, balance);
+    balance::join(&mut vault.cash_balance, balance);
     coin::mint_balance(&mut vault.lp_treasury, lp_amount)
 }
 
@@ -510,7 +507,7 @@ fun create_withdraw_ticket<T, YT>(vault: &LiquidityVault<T, YT>): WithdrawTicket
     };
 
     WithdrawTicket {
-        to_withdraw_from_free_balance: 0,
+        to_withdraw_from_cash_balance: 0,
         strategy_infos,
         lp_to_burn: balance::zero(),
     }
@@ -537,7 +534,7 @@ public fun withdraw<T, YT>(
 
     // join unlocked profits to free balance
     balance::join(
-        &mut vault.free_balance,
+        &mut vault.cash_balance,
         tlb::withdraw_all(&mut vault.time_locked_profit, clock),
     );
 
@@ -550,11 +547,11 @@ public fun withdraw<T, YT>(
     );
 
     // first withdraw everything possible from free balance
-    ticket.to_withdraw_from_free_balance = u64::min(
+    ticket.to_withdraw_from_cash_balance = u64::min(
         remaining_to_withdraw,
-        balance::value(&vault.free_balance)
+        balance::value(&vault.cash_balance)
     );
-    remaining_to_withdraw = remaining_to_withdraw - ticket.to_withdraw_from_free_balance;
+    remaining_to_withdraw = remaining_to_withdraw - ticket.to_withdraw_from_cash_balance;
 
     if (remaining_to_withdraw == 0) {
         return ticket
@@ -657,7 +654,7 @@ public fun redeem_withdraw_ticket<T, YT>(
     let mut out = balance::zero();
 
     let WithdrawTicket {
-        to_withdraw_from_free_balance, mut strategy_infos, lp_to_burn
+        to_withdraw_from_cash_balance, mut strategy_infos, lp_to_burn
     } = ticket;
     let lp_to_burn_amt = balance::value(&lp_to_burn);
 
@@ -692,7 +689,7 @@ public fun redeem_withdraw_ticket<T, YT>(
 
     balance::join(
         &mut out,
-        balance::split(&mut vault.free_balance, to_withdraw_from_free_balance),
+        balance::split(&mut vault.cash_balance, to_withdraw_from_cash_balance),
     );
     balance::decrease_supply(
         coin::supply_mut(&mut vault.lp_treasury),
@@ -720,6 +717,21 @@ public fun withdraw_t_amt<T, YT>(
     let balance = balance::split(balance, yt_amt);
 
     withdraw(vault, balance, clock)
+}
+
+/// Borrow assets without collateral 
+public(package) fun borrow<T, YT>(
+    self: &mut LiquidityVault<T, YT>,
+    amount: u64,
+    ctx: &mut TxContext
+): Balance<T> {
+    assert_version(self);
+    
+    // assert!(balance::value(&self.cash_balance) >= amount, EInsufficientBalance);
+    self.loan_amount = self.loan_amount + amount;
+    
+    let balance = balance::split(&mut self.cash_balance, amount);
+    balance
 }
 
 /* ================= strategy operations ================= */
@@ -759,7 +771,7 @@ public fun calc_rebalance_amounts<T, YT>(
     let mut max_borrow_idxs_to_process = vector::empty();
     let mut no_max_borrow_idxs = vector::empty();
 
-    total_available_balance = total_available_balance + balance::value(&vault.free_balance);
+    total_available_balance = total_available_balance + balance::value(&vault.cash_balance);
     total_available_balance = total_available_balance + tlb::max_withdrawable(&vault.time_locked_profit, clock);
 
     let mut i = 0;
@@ -896,6 +908,14 @@ public fun calc_rebalance_amounts<T, YT>(
     RebalanceAmounts { inner: rebalance_infos }
 }
 
+/// Calc withdrawal amount by shares
+public fun calc_withdraw_by_shares<T, YT>(
+    self: &LiquidityVault<T, YT>, shares: u64
+): u64 {
+    muldiv(shares, self.cash_value(), self.lp_treasury.total_supply())
+
+}
+
 /// Strategies call this to repay loaned amounts.
 public(package) fun strategy_repay<T, YT>(
     vault: &mut LiquidityVault<T, YT>, access: &VaultAccess, balance: Balance<T>
@@ -908,7 +928,7 @@ public(package) fun strategy_repay<T, YT>(
     let strategy_id = object::uid_as_inner(&access.id);
     let strategy_state = vec_map::get_mut(&mut vault.strategies, strategy_id);
     strategy_state.borrowed = strategy_state.borrowed - balance::value(&balance);
-    balance::join(&mut vault.free_balance, balance);
+    balance::join(&mut vault.cash_balance, balance);
 }
 
 /// Strategies call this to borrow additional funds from the vault. Always returns
@@ -923,7 +943,7 @@ public(package) fun strategy_borrow<T, YT>(
     // are trusted to borrow the correct amounts based on `RebalanceInfo`.
     let strategy_id = object::uid_as_inner(&access.id);
     let strategy_state = vec_map::get_mut(&mut vault.strategies, strategy_id);
-    let balance = balance::split(&mut vault.free_balance, amount);
+    let balance = balance::split(&mut vault.cash_balance, amount);
     strategy_state.borrowed = strategy_state.borrowed + amount;
 
     balance
@@ -967,7 +987,7 @@ public(package) fun strategy_hand_over_profit<T, YT>(
 
     // reset profit unlock
     balance::join(
-        &mut vault.free_balance,
+        &mut vault.cash_balance,
         tlb::withdraw_all(&mut vault.time_locked_profit, clock),
     );
 
@@ -991,11 +1011,6 @@ public(package) fun strategy_hand_over_profit<T, YT>(
 // ------- Getters ------- //
 public fun id<T, YT>(self: &LiquidityVault<T, YT>): ID {
     object::id(self)
-}
-
-/// Get the free balance value.
-public fun free_balance_value<T, YT>(self: &LiquidityVault<T, YT>): u64 {
-    balance::value(&self.free_balance)
 }
 
 /* =================================================== tests =================================================== */
@@ -1048,7 +1063,8 @@ fun test_total_available_balance() {
     let vault = LiquidityVault<A, LIQUIDITY_VAULT> {
         id: object::new(&mut ctx),
 
-        free_balance: mint_a_balance(10),
+        cash_balance: mint_a_balance(10),
+        loan_amount: 0,
         time_locked_profit: tlb::create(mint_a_balance(200), 0, 1),
         lp_treasury: ya_treasury, 
         strategies,
@@ -1075,13 +1091,13 @@ fun test_total_available_balance() {
 #[test_only]
 fun assert_ticket_values<T, TY>(
     ticket: &WithdrawTicket<T, TY>,
-    to_withdraw_from_free_balance: u64,
+    to_withdraw_from_cash_balance: u64,
     keys: vector<ID>,
     to_withdraw_values: vector<u64>,
     lp_to_burn_amount: u64,
 ) {
     assert!(vector::length(&keys) == vector::length(&to_withdraw_values), 0);
-    assert!(ticket.to_withdraw_from_free_balance == to_withdraw_from_free_balance, 0);
+    assert!(ticket.to_withdraw_from_cash_balance == to_withdraw_from_cash_balance, 0);
     let mut seen: VecSet<ID> = vec_set::empty();
     let mut i = 0;
     let n = vector::length(&keys);
@@ -1102,7 +1118,7 @@ fun assert_ticket_total_withdraw<T, YT>(
 ) {
     let mut i = 0;
     let n = vec_map::size(&ticket.strategy_infos);
-    let mut total_withdraw = ticket.to_withdraw_from_free_balance;
+    let mut total_withdraw = ticket.to_withdraw_from_cash_balance;
     while (i < n) {
         let (_, strategy_withdraw_info) = vec_map::get_entry_by_idx(&ticket.strategy_infos, i);
         total_withdraw = total_withdraw + strategy_withdraw_info.to_withdraw;
@@ -1144,7 +1160,8 @@ fun create_vault_for_testing(ctx: &mut TxContext): (LiquidityVault<A, LIQUIDITY_
     let mut vault = LiquidityVault<A, LIQUIDITY_VAULT> {
         id: object::new(ctx),
 
-        free_balance: mint_a_balance(1000),
+        cash_balance: mint_a_balance(1000),
+        loan_amount: 0,
         time_locked_profit: tlb::create(mint_a_balance(10000), 0, 1),
         lp_treasury: ya_treasury, 
         strategies,
@@ -1166,7 +1183,7 @@ fun create_vault_for_testing(ctx: &mut TxContext): (LiquidityVault<A, LIQUIDITY_
 }
 
 #[test]
-fun test_withdraw_from_free_balance() {
+fun test_withdraw_from_cash_balance() {
     let mut ctx = tx_context::dummy();
     let id_a = object::id_from_address(@0xA);
     let id_b = object::id_from_address(@0xB);
@@ -1441,7 +1458,7 @@ fun test_withdraw_ticket_redeem() {
         has_withdrawn: true,
     });
     let ticket =  WithdrawTicket {
-        to_withdraw_from_free_balance: 1000,
+        to_withdraw_from_cash_balance: 1000,
         strategy_infos,
         lp_to_burn: balance::split(&mut lp, 4500),
     };
@@ -1457,7 +1474,7 @@ fun test_withdraw_ticket_redeem() {
     let strat_state_a = vec_map::get(&vault.strategies, &id_c);
     assert!(strat_state_a.borrowed == 1000, 0);
 
-    assert!(balance::value(&vault.free_balance) == 0, 0);
+    assert!(balance::value(&vault.cash_balance) == 0, 0);
     assert!(coin::total_supply(&vault.lp_treasury) == 5500, 0);
 
     sui::test_utils::destroy(vault);
@@ -1486,7 +1503,8 @@ fun test_strategy_get_rebalance_amounts_one_strategy() {
     let mut vault = LiquidityVault<A, LIQUIDITY_VAULT> {
         id: object::new(&mut ctx),
 
-        free_balance: mint_a_balance(1000),
+        cash_balance: mint_a_balance(1000),
+        loan_amount: 0,
         time_locked_profit: tlb::create(mint_a_balance(10000), 0, 1),
         lp_treasury: ya_treasury, 
         strategies,
@@ -1508,7 +1526,7 @@ fun test_strategy_get_rebalance_amounts_one_strategy() {
     clock::increment_for_testing(&mut clock, 1000 * 1000);
 
     
-    // free_balance: 1000
+    // cash_balance: 1000
     // released from profits: 1000
     // strategies:
     //   - borrowed: 5000/inf, weight: 100%
@@ -1555,7 +1573,8 @@ fun test_strategy_get_rebalance_amounts_two_strategies_balanced() {
     let mut vault = LiquidityVault<A, LIQUIDITY_VAULT> {
         id: object::new(&mut ctx),
 
-        free_balance: mint_a_balance(1000),
+        cash_balance: mint_a_balance(1000),
+        loan_amount: 0,
         time_locked_profit: tlb::create(mint_a_balance(10000), 0, 1),
         lp_treasury: ya_treasury, 
         strategies,
@@ -1577,7 +1596,7 @@ fun test_strategy_get_rebalance_amounts_two_strategies_balanced() {
     clock::increment_for_testing(&mut clock, 1000 * 1000);
 
     
-    // free_balance: 1000
+    // cash_balance: 1000
     // released from profits: 1000
     // strategies:
     //   - borrowed: 5000/inf, weight: 50%
@@ -1632,7 +1651,8 @@ fun test_strategy_get_rebalance_amounts_two_strategies_one_balanced() {
     let mut vault = LiquidityVault<A, LIQUIDITY_VAULT> {
         id: object::new(&mut ctx),
 
-        free_balance: mint_a_balance(0),
+        cash_balance: mint_a_balance(0),
+        loan_amount: 0,
         time_locked_profit: tlb::create(mint_a_balance(10000), 0, 1),
         lp_treasury: ya_treasury, 
         strategies,
@@ -1653,7 +1673,7 @@ fun test_strategy_get_rebalance_amounts_two_strategies_one_balanced() {
     let mut clock = clock::create_for_testing(&mut ctx);
     clock::increment_for_testing(&mut clock, 1000 * 1000);
 
-    // free_balance: 0
+    // cash_balance: 0
     // released from profits: 1000
     // strategies:
     //   - borrowed: 5000/inf, weight: 50%
@@ -1708,7 +1728,8 @@ fun test_strategy_get_rebalance_amounts_two_strategies_both_unbalanced() {
     let mut vault = LiquidityVault<A, LIQUIDITY_VAULT> {
         id: object::new(&mut ctx),
 
-        free_balance: mint_a_balance(50),
+        cash_balance: mint_a_balance(50),
+        loan_amount: 0,
         time_locked_profit: tlb::create(mint_a_balance(10000), 0, 1),
         lp_treasury: ya_treasury, 
         strategies,
@@ -1730,7 +1751,7 @@ fun test_strategy_get_rebalance_amounts_two_strategies_both_unbalanced() {
     clock::increment_for_testing(&mut clock, 50 * 1000);
 
     
-    // free_balance: 50
+    // cash_balance: 50
     // released from profits: 50
     // strategies:
     //   - borrowed: 4000/inf, weight: 50%
@@ -1793,7 +1814,8 @@ fun test_strategy_get_rebalance_amounts_with_cap_balanced() {
     let mut vault = LiquidityVault<A, LIQUIDITY_VAULT> {
         id: object::new(&mut ctx),
 
-        free_balance: mint_a_balance(0),
+        cash_balance: mint_a_balance(0),
+        loan_amount: 0,
         time_locked_profit: tlb::create(mint_a_balance(10000), 0, 1),
         lp_treasury: ya_treasury, 
         strategies,
@@ -1815,7 +1837,7 @@ fun test_strategy_get_rebalance_amounts_with_cap_balanced() {
     clock::increment_for_testing(&mut clock, 0 * 1000);
 
     
-    // free_balance: 0
+    // cash_balance: 0
     // released from profits: 0
     // strategies:
     //   - borrowed: 2000/2000, weight: 20%
@@ -1885,7 +1907,8 @@ fun test_strategy_get_rebalance_amounts_with_cap_over_cap() {
     let mut vault = LiquidityVault<A, LIQUIDITY_VAULT> {
         id: object::new(&mut ctx),
 
-        free_balance: mint_a_balance(2500),
+        cash_balance: mint_a_balance(2500),
+            loan_amount: 0,
         time_locked_profit: tlb::create(mint_a_balance(10000), 0, 1),
         lp_treasury: ya_treasury, 
         strategies,
@@ -1907,7 +1930,7 @@ fun test_strategy_get_rebalance_amounts_with_cap_over_cap() {
     clock::increment_for_testing(&mut clock, 2500 * 1000);
 
     
-    // free_balance: 2500
+    // cash_balance: 2500
     // released from profits: 2500
     // strategies:
     //   - borrowed: 1000/500, weight: 20%
@@ -1985,7 +2008,8 @@ fun test_strategy_get_rebalance_amounts_with_cap_over_and_under_cap() {
     let mut vault = LiquidityVault<A, LIQUIDITY_VAULT> {
         id: object::new(&mut ctx),
 
-        free_balance: mint_a_balance(2500),
+        cash_balance: mint_a_balance(2500),
+        loan_amount: 0,
         time_locked_profit: tlb::create(mint_a_balance(10000), 0, 1),
         lp_treasury: ya_treasury, 
         strategies,
@@ -2007,7 +2031,7 @@ fun test_strategy_get_rebalance_amounts_with_cap_over_and_under_cap() {
     clock::increment_for_testing(&mut clock, 2500 * 1000);
 
     
-    // free_balance: 2500
+    // cash_balance: 2500
     // released from profits: 2500
     // strategies:
     //   - borrowed: 1000/500, weight: 10%
@@ -2100,7 +2124,8 @@ fun test_strategy_get_rebalance_amounts_with_cap_over_and_two_under_cap() {
     let mut vault = LiquidityVault<A, LIQUIDITY_VAULT> {
         id: object::new(&mut ctx),
 
-        free_balance: mint_a_balance(2500),
+        cash_balance: mint_a_balance(2500),
+        loan_amount: 0,
         time_locked_profit: tlb::create(mint_a_balance(10000), 0, 1),
         lp_treasury: ya_treasury, 
         strategies,
@@ -2122,7 +2147,7 @@ fun test_strategy_get_rebalance_amounts_with_cap_over_and_two_under_cap() {
     clock::increment_for_testing(&mut clock, 2500 * 1000);
 
     
-    // free_balance: 2500
+    // cash_balance: 2500
     // released from profits: 2500
     // strategies:
     //   - borrowed: 1000/500, weight: 10%
@@ -2222,7 +2247,8 @@ fun test_strategy_get_rebalance_amounts_with_cap_over_reduce_and_two_under_cap()
     let mut vault = LiquidityVault<A, LIQUIDITY_VAULT> {
         id: object::new(&mut ctx),
 
-        free_balance: mint_a_balance(2500),
+        cash_balance: mint_a_balance(2500),
+        loan_amount: 0, 
         time_locked_profit: tlb::create(mint_a_balance(10000), 0, 1),
         lp_treasury: ya_treasury, 
         strategies,
@@ -2244,7 +2270,7 @@ fun test_strategy_get_rebalance_amounts_with_cap_over_reduce_and_two_under_cap()
     clock::increment_for_testing(&mut clock, 2500 * 1000);
 
     
-    // free_balance: 2500
+    // cash_balance: 2500
     // released from profits: 2500
     // strategies:
     //   - borrowed: 6000/5000, weight: 4%
@@ -2312,7 +2338,8 @@ fun test_strategy_hand_over_profit() {
     let mut vault = LiquidityVault<A, LIQUIDITY_VAULT> {
         id: object::new(&mut ctx),
 
-        free_balance: mint_a_balance(1000),
+        cash_balance: mint_a_balance(1000),
+        loan_amount: 0,
         time_locked_profit: tlb::create(mint_a_balance(10000), 0, 1),
         lp_treasury: ya_treasury, 
         strategies,
@@ -2338,7 +2365,7 @@ fun test_strategy_hand_over_profit() {
         &mut vault, &vault_access_a, profit, &clock
     );
 
-    assert!(balance::value(&vault.free_balance) == 2000, 0);
+    assert!(balance::value(&vault.cash_balance) == 2000, 0);
     assert!(tlb::remaining_unlock(&vault.time_locked_profit, &clock) == 13998, 0);
     assert!(tlb::extraneous_locked_amount(&vault.time_locked_profit) == 2, 0);
     assert!(tlb::unlock_start_ts_sec(&vault.time_locked_profit) == timestamp_sec(&clock), 0);
@@ -2406,7 +2433,8 @@ fun test_remove_strategy() {
 
     let mut vault = LiquidityVault<A, LIQUIDITY_VAULT> {
         id: object::new(&mut ctx),
-        free_balance: mint_a_balance(2500),
+        cash_balance: mint_a_balance(2500),
+        loan_amount: 0,
         time_locked_profit: tlb::create(mint_a_balance(10000), 0, 1),
         lp_treasury: ya_treasury,
         strategies,
