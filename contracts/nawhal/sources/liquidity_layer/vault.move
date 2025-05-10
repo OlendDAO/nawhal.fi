@@ -12,10 +12,9 @@ use sui::coin::{Self, TreasuryCap};
 use sui::event;
 use sui::package::UpgradeCap;
 use sui::vec_map::{Self, VecMap};
-use sui::vec_set;
 
 use narval::access::{Self, AdminCap, VaultAccess};
-use narval::protocol::{Self, StrategyState, RebalanceInfo, RebalanceAmounts, WithdrawTicket, StrategyWithdrawInfo, StrategyRemovalTicket};
+use narval::protocol::{Self, StrategyState, RebalanceInfo, RebalanceAmounts, WithdrawTicket, StrategyWithdrawInfo};
 
 /* ================= constants ================= */
 
@@ -48,9 +47,9 @@ const EStrategyNotWithdrawn: u64 = 5;
 /// The strategy is not registered with the vault
 const EInvalidVaultAccess: u64 = 6;
 
-/// Target strategy weights input should add up to 100% and contain the same
-/// number of elements as the number of strategies
-const EInvalidWeights: u64 = 7;
+// /// Target strategy weights input should add up to 100% and contain the same
+// /// number of elements as the number of strategies
+// const EInvalidWeights: u64 = 7;
 
 /// An invariant has been violated
 const EInvariantViolation: u64 = 8;
@@ -61,7 +60,7 @@ const EWrongVersion: u64 = 9;
 /// Migration is not an upgrade
 const ENotUpgrade: u64 = 10;
 
-/// UpgradeCap object doesn't belong to this package
+// /// UpgradeCap object doesn't belong to this package
 // const EInvalidUpgradeCap: u64 = 11;
 
 /// Treasury supply has to be 0
@@ -165,6 +164,12 @@ public fun tvl_cap<T, YT>(vault: &Vault<T, YT>): Option<u64> {
     vault.tvl_cap
 }
 
+/// Get time locked profit value
+public fun time_locked_profit<T, YT>(vault: &Vault<T, YT>): &TimeLockedBalance<T> {
+    &vault.time_locked_profit
+}
+
+/// Get the total available balance of the vault
 public fun total_available_balance<T, YT>(vault: &Vault<T, YT>, clock: &Clock): u64 {
     let mut total: u64 = 0;
 
@@ -186,14 +191,40 @@ public fun total_yt_supply<T, YT>(vault: &Vault<T, YT>): u64 {
     vault.lp_treasury.total_supply()
 }
 
+/// Get free balance value
+public fun free_balance_value<T, YT>(vault: &Vault<T, YT>): u64 {
+    vault.free_balance.value()
+}
+
+/// Get performance fee balance value
+public fun performance_fee_balance_value<T, YT>(vault: &Vault<T, YT>): u64 {
+    vault.performance_fee_balance.value()
+}
+
+/// Get `strategy_withdraw_priority_order`
+public fun strategy_withdraw_priority_order<T, YT>(vault: &Vault<T, YT>): vector<ID> {
+    vault.strategy_withdraw_priority_order
+}
+
 /// Get size of `strategies`
 public fun strategies_size<T, YT>(vault: &Vault<T, YT>): u64 {
     vault.strategies.size()
 }
 
+/// Get strategy by id
+public fun get_strategy_by_id<T, YT>(vault: &Vault<T, YT>, strategy_id: &ID): &StrategyState {
+    vault.strategies.get(strategy_id)
+}
+
+/// Migrate to a new version
 entry fun migrate<T, YT>(_cap: &AdminCap<YT>, vault: &mut Vault<T, YT>) {
     assert!(vault.version < MODULE_VERSION, ENotUpgrade);
     vault.version = MODULE_VERSION;
+}
+
+/// Borrow mut `lp_treasury`
+public fun borrow_mut_lp_treasury<T, YT>(vault: &mut Vault<T, YT>): &mut TreasuryCap<YT> {
+    &mut vault.lp_treasury
 }
 
 /// Borrow mut `StrategyState`
@@ -231,6 +262,16 @@ public(package) fun remove_strategy_from_withdraw_priority_order<T, YT>(vault: &
     let (has, idx) = vault.strategy_withdraw_priority_order.index_of(strategy_id);
     assert!(has, EInvariantViolation);
     vault.strategy_withdraw_priority_order.remove(idx);
+}
+
+/// Default profit unlock duration in seconds
+public fun default_profit_unlock_duration_sec(): u64 {
+    DEFAULT_PROFIT_UNLOCK_DURATION_SEC
+}
+
+/// Module version
+public fun module_version(): u64 {
+    MODULE_VERSION
 }
 
 /* ================= admin ================= */
@@ -279,8 +320,10 @@ entry fun pull_unlocked_profits_to_free_balance<T, YT>(
 ) {
     vault.assert_version();
 
+    let balance = vault.time_locked_profit.withdraw_all(clock);
+
     vault.join_free_balance(
-        vault.time_locked_profit.withdraw_all(clock),
+        balance,
     );
 }
 
@@ -377,9 +420,8 @@ public fun withdraw<T, YT>(
     ticket.join_lp_to_burn(balance);
 
     // join unlocked profits to free balance
-    vault.join_free_balance(
-        vault.time_locked_profit.withdraw_all(clock),
-    );
+    let balance = vault.time_locked_profit.withdraw_all(clock);
+    vault.join_free_balance(balance);
 
     // calculate withdraw amount
     let total_available = total_available_balance(vault, clock);
@@ -453,16 +495,19 @@ public fun withdraw<T, YT>(
     while (i < n) {
         let strategy_id = vector::borrow(&vault.strategy_withdraw_priority_order, i);
         let strategy_state = vec_map::get(&vault.strategies, strategy_id);
-        let strategy_withdraw_info = vec_map::get_mut(&mut ticket.strategy_infos, strategy_id);
+        let strategy_withdraw_info = ticket.get_mut_strategy_info(strategy_id);
 
-        let strategy_remaining = strategy_state.borrowed - strategy_withdraw_info.to_withdraw;
+        let strategy_remaining = strategy_state.borrowed() - strategy_withdraw_info.to_withdraw();
+
         let to_withdraw = muldiv(
             strategy_remaining,
             to_withdraw_propotionally_base,
             total_borrowed_after_excess_withdrawn,
         );
 
-        strategy_withdraw_info.to_withdraw = strategy_withdraw_info.to_withdraw + to_withdraw;
+        let current_to_withdraw = strategy_withdraw_info.to_withdraw();
+        strategy_withdraw_info.set_to_withdraw(current_to_withdraw + to_withdraw);
+
         remaining_to_withdraw = remaining_to_withdraw - to_withdraw;
 
         i = i + 1;
@@ -474,16 +519,19 @@ public fun withdraw<T, YT>(
     };
 
     let mut i = 0;
-    let n = vector::length(&vault.strategy_withdraw_priority_order);
-    while (i < n) {
-        let strategy_id = vector::borrow(&vault.strategy_withdraw_priority_order, i);
-        let strategy_state = vec_map::get(&vault.strategies, strategy_id);
-        let strategy_withdraw_info = vec_map::get_mut(&mut ticket.strategy_infos, strategy_id);
+    let n = vault.strategy_withdraw_priority_order.length();
 
-        let strategy_remaining = strategy_state.borrowed - strategy_withdraw_info.to_withdraw;
+    while (i < n) {
+        let strategy_id = *vault.strategy_withdraw_priority_order.borrow(i);
+        let strategy_state = vault.strategies.get(&strategy_id);
+        let strategy_withdraw_info = ticket.get_mut_strategy_info(&strategy_id);
+
+        let strategy_remaining = strategy_state.borrowed() - strategy_withdraw_info.to_withdraw();
         let to_withdraw = u64::min(strategy_remaining, remaining_to_withdraw);
 
-        strategy_withdraw_info.to_withdraw = strategy_withdraw_info.to_withdraw + to_withdraw;
+        let current_to_withdraw = strategy_withdraw_info.to_withdraw();
+        strategy_withdraw_info.set_to_withdraw(current_to_withdraw + to_withdraw);
+
         remaining_to_withdraw = remaining_to_withdraw - to_withdraw;
 
         if (remaining_to_withdraw == 0) {
@@ -504,29 +552,28 @@ public fun redeem_withdraw_ticket<T, YT>(
 
     let mut out = balance::zero();
 
-    let WithdrawTicket {
-        to_withdraw_from_free_balance,
-        mut strategy_infos,
-        lp_to_burn,
-    } = ticket;
+    let (to_withdraw_from_free_balance, mut strategy_infos, lp_to_burn) = ticket.extract_withdraw_ticket();
+
     let lp_to_burn_amt = balance::value(&lp_to_burn);
 
     while (vec_map::size(&strategy_infos) > 0) {
         let (strategy_id, withdraw_info) = vec_map::pop(&mut strategy_infos);
-        let StrategyWithdrawInfo {
+
+        let (
             to_withdraw,
             withdrawn_balance,
             has_withdrawn,
-        } = withdraw_info;
+        ) = withdraw_info.extract_strategy_withdraw_info();
+
         if (to_withdraw > 0) {
             assert!(has_withdrawn, EStrategyNotWithdrawn);
         };
 
-        if (balance::value(&withdrawn_balance) < to_withdraw) {
+        if (withdrawn_balance.value() < to_withdraw) {
             event::emit(StrategyLossEvent<YT> {
                 strategy_id,
                 to_withdraw,
-                withdrawn: balance::value(&withdrawn_balance),
+                withdrawn: withdrawn_balance.value(),
             });
         };
 
@@ -535,19 +582,21 @@ public fun redeem_withdraw_ticket<T, YT>(
         // by the withdrawal are effectively covered by the user and considered paid back
         // to the vault. This also ensures that vault's `total_available_balance` before
         // and after withdrawal matches the amount of lp tokens burned.
-        let strategy_state = vec_map::get_mut(&mut vault.strategies, &strategy_id);
-        strategy_state.borrowed = strategy_state.borrowed - to_withdraw;
+        let strategy_state = vault.strategies.get_mut(&strategy_id);
+
+        let current_borrowed = strategy_state.borrowed();
+        strategy_state.set_borrowed(current_borrowed - to_withdraw);
 
         balance::join(&mut out, withdrawn_balance);
     };
-    vec_map::destroy_empty(strategy_infos);
 
-    balance::join(
-        &mut out,
-        balance::split(&mut vault.free_balance, to_withdraw_from_free_balance),
+    strategy_infos.destroy_empty();
+
+    out.join(
+        vault.free_balance.split(to_withdraw_from_free_balance),
     );
-    balance::decrease_supply(
-        coin::supply_mut(&mut vault.lp_treasury),
+
+    coin::supply_mut(&mut vault.lp_treasury).decrease_supply(
         lp_to_burn,
     );
 
@@ -557,6 +606,7 @@ public fun redeem_withdraw_ticket<T, YT>(
     });
 
     vault.withdraw_ticket_issued = false;
+
     out
 }
 
@@ -566,12 +616,14 @@ public fun withdraw_t_amt<T, YT>(
     balance: &mut Balance<YT>,
     clock: &Clock,
 ): WithdrawTicket<T, YT> {
-    let total_available = total_available_balance(vault, clock);
+    let total_available = vault.total_available_balance(clock);
+
     let yt_amt = muldiv_round_up(
         t_amt,
-        coin::total_supply(&vault.lp_treasury),
+        vault.lp_treasury.total_supply(),
         total_available,
     );
+
     let balance = balance::split(balance, yt_amt);
 
     withdraw(vault, balance, clock)
@@ -585,13 +637,13 @@ public(package) fun strategy_withdraw_to_ticket<T, YT>(
     access: &VaultAccess,
     balance: Balance<T>,
 ) {
-    let strategy_id = object::uid_as_inner(&access.id);
-    let withdraw_info = vec_map::get_mut(&mut ticket.strategy_infos, strategy_id);
+    let strategy_id = access.vault_access_id();
+    let withdraw_info = ticket.get_mut_strategy_info(&strategy_id);
 
-    assert!(withdraw_info.has_withdrawn == false, EStrategyAlreadyWithdrawn);
-    withdraw_info.has_withdrawn = true;
+    assert!(withdraw_info.has_withdrawn() == false, EStrategyAlreadyWithdrawn);
+    withdraw_info.set_has_withdrawn(true);
 
-    balance::join(&mut withdraw_info.withdrawn_balance, balance);
+    withdraw_info.join_withdrawn_balance(balance);
 }
 
 /// Get the target rebalance amounts the strategies should repay or can borrow.
@@ -614,25 +666,25 @@ public fun calc_rebalance_amounts<T, YT>(vault: &Vault<T, YT>, clock: &Clock): R
     let mut max_borrow_idxs_to_process = vector::empty();
     let mut no_max_borrow_idxs = vector::empty();
 
-    total_available_balance = total_available_balance + balance::value(&vault.free_balance);
+    total_available_balance = total_available_balance + vault.free_balance.value();
+
     total_available_balance =
         total_available_balance + tlb::max_withdrawable(&vault.time_locked_profit, clock);
 
     let mut i = 0;
-    let n = vec_map::size(&vault.strategies);
+    let n = vault.strategies.size();
+    
     while (i < n) {
-        let (strategy_id, strategy_state) = vec_map::get_entry_by_idx(&vault.strategies, i);
+        let (strategy_id, strategy_state) = vault.strategies.get_entry_by_idx(i);
         vec_map::insert(
             &mut rebalance_infos,
             *strategy_id,
-            RebalanceInfo {
-                to_repay: 0,
-                can_borrow: 0,
-            },
+            protocol::new_rebalance_info(0, 0),
         );
 
-        total_available_balance = total_available_balance + strategy_state.borrowed;
-        if (option::is_some(&strategy_state.max_borrow)) {
+        total_available_balance = total_available_balance + strategy_state.borrowed();
+
+        if (strategy_state.exists_max_borrow()) {
             vector::push_back(&mut max_borrow_idxs_to_process, i);
         } else {
             vector::push_back(&mut no_max_borrow_idxs, i);
@@ -657,25 +709,27 @@ public fun calc_rebalance_amounts<T, YT>(vault: &Vault<T, YT>, clock: &Clock): R
             let (_, strategy_state) = vec_map::get_entry_by_idx(&vault.strategies, idx);
             let (_, rebalance_info) = vec_map::get_entry_by_idx_mut(&mut rebalance_infos, idx);
 
-            let max_borrow: u64 = *option::borrow(&strategy_state.max_borrow);
+            let max_borrow: u64 = strategy_state.max_borrow();
             let target_alloc_amt = muldiv(
                 remaining_to_allocate,
-                strategy_state.target_alloc_weight_bps,
+                strategy_state.target_alloc_weight_bps(),
                 remaining_total_alloc_bps,
             );
 
             if (
-                target_alloc_amt <= strategy_state.borrowed || max_borrow <= strategy_state.borrowed
+                target_alloc_amt <= strategy_state.borrowed() || max_borrow <= strategy_state.borrowed()
             ) {
                 // needs to repay
                 if (target_alloc_amt < max_borrow) {
                     vector::push_back(&mut new_max_borrow_idxs_to_process, idx);
                 } else {
                     let target_alloc_amt = max_borrow;
-                    rebalance_info.to_repay = strategy_state.borrowed - target_alloc_amt;
+
+                    rebalance_info.set_to_repay(strategy_state.borrowed() - target_alloc_amt);
+
                     remaining_to_allocate = remaining_to_allocate - target_alloc_amt;
                     remaining_total_alloc_bps =
-                        remaining_total_alloc_bps - strategy_state.target_alloc_weight_bps;
+                        remaining_total_alloc_bps - strategy_state.target_alloc_weight_bps();
 
                     // might add extra amounts to allocate so need to reprocess ones which
                     // haven't reached their cap
@@ -685,13 +739,15 @@ public fun calc_rebalance_amounts<T, YT>(vault: &Vault<T, YT>, clock: &Clock): R
                 i = i + 1;
                 continue
             };
+
             // can borrow
             if (target_alloc_amt >= max_borrow) {
                 let target_alloc_amt = max_borrow;
-                rebalance_info.can_borrow = target_alloc_amt - strategy_state.borrowed;
+                rebalance_info.set_can_borrow(target_alloc_amt - strategy_state.borrowed());
+
                 remaining_to_allocate = remaining_to_allocate - target_alloc_amt;
                 remaining_total_alloc_bps =
-                    remaining_total_alloc_bps - strategy_state.target_alloc_weight_bps;
+                    remaining_total_alloc_bps - strategy_state.target_alloc_weight_bps();
 
                 // might add extra amounts to allocate so need to reprocess ones which
                 // haven't reached their cap
@@ -706,6 +762,7 @@ public fun calc_rebalance_amounts<T, YT>(vault: &Vault<T, YT>, clock: &Clock): R
                 continue
             }
         };
+
         max_borrow_idxs_to_process = new_max_borrow_idxs_to_process;
     };
 
@@ -720,13 +777,13 @@ public fun calc_rebalance_amounts<T, YT>(vault: &Vault<T, YT>, clock: &Clock): R
 
         let target_borrow = muldiv(
             remaining_to_allocate,
-            strategy_state.target_alloc_weight_bps,
+            strategy_state.target_alloc_weight_bps(),
             remaining_total_alloc_bps,
         );
-        if (target_borrow >= strategy_state.borrowed) {
-            rebalance_info.can_borrow = target_borrow - strategy_state.borrowed;
+        if (target_borrow >= strategy_state.borrowed()) {
+            rebalance_info.set_can_borrow(target_borrow - strategy_state.borrowed());
         } else {
-            rebalance_info.to_repay = strategy_state.borrowed - target_borrow;
+            rebalance_info.set_to_repay(strategy_state.borrowed() - target_borrow);
         };
 
         i = i + 1;
@@ -741,19 +798,19 @@ public fun calc_rebalance_amounts<T, YT>(vault: &Vault<T, YT>, clock: &Clock): R
 
         let target_borrow = muldiv(
             remaining_to_allocate,
-            strategy_state.target_alloc_weight_bps,
+            strategy_state.target_alloc_weight_bps(),
             remaining_total_alloc_bps,
         );
-        if (target_borrow >= strategy_state.borrowed) {
-            rebalance_info.can_borrow = target_borrow - strategy_state.borrowed;
+        if (target_borrow >= strategy_state.borrowed()) {
+            rebalance_info.set_can_borrow(target_borrow - strategy_state.borrowed());
         } else {
-            rebalance_info.to_repay = strategy_state.borrowed - target_borrow;
+            rebalance_info.set_to_repay(strategy_state.borrowed() - target_borrow);
         };
 
         i = i + 1;
     };
 
-    RebalanceAmounts { inner: rebalance_infos }
+    protocol::new_rebalance_amounts(rebalance_infos)
 }
 
 /// Strategies call this to repay loaned amounts.
@@ -767,10 +824,13 @@ public(package) fun strategy_repay<T, YT>(
 
     // amounts are purposefully not checked here because the strategies
     // are trusted to repay the correct amounts based on `RebalanceInfo`.
-    let strategy_id = object::uid_as_inner(&access.id);
-    let strategy_state = vec_map::get_mut(&mut vault.strategies, strategy_id);
-    strategy_state.borrowed = strategy_state.borrowed - balance::value(&balance);
-    balance::join(&mut vault.free_balance, balance);
+    let strategy_id = access.vault_access_id();
+    let strategy_state = vault.strategies.get_mut(&strategy_id);
+
+    let current_borrowed = strategy_state.borrowed();
+    strategy_state.set_borrowed(current_borrowed - balance.value());
+
+    vault.free_balance.join(balance);
 }
 
 /// Strategies call this to borrow additional funds from the vault. Always returns
@@ -785,10 +845,12 @@ public(package) fun strategy_borrow<T, YT>(
 
     // amounts are purpusfully not checked here because the strategies
     // are trusted to borrow the correct amounts based on `RebalanceInfo`.
-    let strategy_id = object::uid_as_inner(&access.id);
-    let strategy_state = vec_map::get_mut(&mut vault.strategies, strategy_id);
-    let balance = balance::split(&mut vault.free_balance, amount);
-    strategy_state.borrowed = strategy_state.borrowed + amount;
+    let strategy_id = access.vault_access_id();
+    let strategy_state = vault.strategies.get_mut(&strategy_id);
+    let balance = vault.free_balance.split(amount);
+
+    let current_borrowed = strategy_state.borrowed();
+    strategy_state.set_borrowed(current_borrowed + amount);
 
     balance
 }
@@ -801,8 +863,8 @@ public(package) fun strategy_hand_over_profit<T, YT>(
 ) {
     assert_version(vault);
     assert!(vault.withdraw_ticket_issued == false, EWithdrawTicketIssued);
-    let strategy_id = object::uid_as_inner(&access.id);
-    assert!(vec_map::contains(&vault.strategies, strategy_id), EInvalidVaultAccess);
+    let strategy_id = access.vault_access_id();
+    assert!(vault.strategies.contains(&strategy_id), EInvalidVaultAccess);
 
     // collect performance fee
     let fee_amt_t = muldiv(
@@ -827,7 +889,7 @@ public(package) fun strategy_hand_over_profit<T, YT>(
     };
 
     event::emit(StrategyProfitEvent<YT> {
-        strategy_id: object::uid_to_inner(&access.id),
+        strategy_id: access.vault_access_id(),
         profit: balance::value(&profit),
         fee_amt_yt: fee_amt_yt,
     });
@@ -856,6 +918,36 @@ public(package) fun strategy_hand_over_profit<T, YT>(
         unlock_per_second,
         clock,
     );
+
     tlb::top_up(&mut vault.time_locked_profit, redeposit, clock);
 }
 
+#[test_only]
+public fun new_for_testing<T, YT>(
+    free_balance: Balance<T>,
+    time_locked_profit: TimeLockedBalance<T>,
+    lp_treasury: TreasuryCap<YT>,
+    strategies: VecMap<ID, StrategyState>,
+    strategy_withdraw_priority_order: vector<ID>,
+    withdraw_ticket_issued: bool,
+    tvl_cap: Option<u64>,
+    profit_unlock_duration_sec: u64,
+    performance_fee_bps: u64,
+    version: u64,
+    ctx: &mut TxContext,
+): Vault<T, YT> {
+    Vault<T, YT> {
+        id: object::new(ctx),
+        free_balance,
+        time_locked_profit,
+        lp_treasury,
+        strategies,
+        strategy_withdraw_priority_order,
+        performance_fee_balance: balance::zero(),
+        performance_fee_bps,
+        profit_unlock_duration_sec,
+        tvl_cap,
+        version,
+        withdraw_ticket_issued,
+    }
+}

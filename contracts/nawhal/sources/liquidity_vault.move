@@ -723,7 +723,7 @@ public fun withdraw_t_amt<T, YT>(
 public(package) fun borrow<T, YT>(
     self: &mut LiquidityVault<T, YT>,
     amount: u64,
-    ctx: &mut TxContext
+    _ctx: &mut TxContext
 ): Balance<T> {
     assert_version(self);
     

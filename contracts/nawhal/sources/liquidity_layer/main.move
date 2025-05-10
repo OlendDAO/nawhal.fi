@@ -103,7 +103,6 @@ public fun remove_strategy<T, YT>(
     set_strategy_target_alloc_weights_bps(cap, vault, ids_for_weights, weights_bps);
 }
 
-
 public(package) fun add_strategy<T, YT>(
     _cap: &AdminCap<YT>,
     vault: &mut Vault<T, YT>,

@@ -63,6 +63,12 @@ public(package) fun new_strategy_withdraw_info<T>(
     }
 }
 
+/// Extract `StrategyWithdrawInfo` to its inner values
+public(package) fun extract_strategy_withdraw_info<T>(self: StrategyWithdrawInfo<T>): (u64, Balance<T>, bool) {
+    let StrategyWithdrawInfo { to_withdraw, withdrawn_balance, has_withdrawn } = self;
+    (to_withdraw, withdrawn_balance, has_withdrawn)
+}
+
 /// Join `balance` to `lp_to_burn`
 public(package) fun join_lp_to_burn<T, YT>(self: &mut WithdrawTicket<T, YT>, balance: Balance<YT>) {
     self.lp_to_burn.join(balance);
@@ -81,9 +87,10 @@ public(package) fun new_withdraw_ticket<T, YT>(
     }
 }
 
-/// Set `to_withdraw_from_free_balance`
-public(package) fun set_to_withdraw_from_free_balance<T, YT>(self: &mut WithdrawTicket<T, YT>, to_withdraw: u64) {
-    self.to_withdraw_from_free_balance = to_withdraw;
+/// Extract `WithdrawTicket` to its inner values
+public(package) fun extract_withdraw_ticket<T, YT>(self: WithdrawTicket<T, YT>): (u64, VecMap<ID, StrategyWithdrawInfo<T>>, Balance<YT>) {
+    let WithdrawTicket { to_withdraw_from_free_balance, strategy_infos, lp_to_burn } = self;
+    (to_withdraw_from_free_balance, strategy_infos, lp_to_burn)
 }
 
 /// Get `lp_to_burn` value
@@ -91,19 +98,59 @@ public fun lp_to_burn_value<T, YT>(self: &WithdrawTicket<T, YT>): u64 {
     self.lp_to_burn.value()
 }
 
+/// Get `to_withdraw`
+public fun to_withdraw<T>(self: &StrategyWithdrawInfo<T>): u64 {
+    self.to_withdraw
+}
+
+/// Get `has_withdrawn`
+public fun has_withdrawn<T>(self: &StrategyWithdrawInfo<T>): bool {
+    self.has_withdrawn
+}
+
 /// Get `to_withdraw_from_free_balance`
 public fun to_withdraw_from_free_balance_value<T, YT>(self: &WithdrawTicket<T, YT>): u64 {
     self.to_withdraw_from_free_balance
 }
 
-/// Get `strategy_infos`
+/// Get `strategy_infos` size
+public fun strategy_infos_size<T, YT>(self: &WithdrawTicket<T, YT>): u64 {
+    self.strategy_infos.size()
+}
+
+/// Get `strategy_infos` entry by index
+public fun get_strategy_info_by_idx<T, YT>(self: &WithdrawTicket<T, YT>, idx: u64): (&ID, &StrategyWithdrawInfo<T>) {
+    self.strategy_infos.get_entry_by_idx(idx)
+}
+
+/// Get mut `strategy_infos`
 public fun get_mut_strategy_info<T, YT>(self: &mut WithdrawTicket<T, YT>, strategy_id: &ID): &mut StrategyWithdrawInfo<T> {
     self.strategy_infos.get_mut(strategy_id)
+}
+
+/// Get `strategy_infos`
+public fun get_strategy_info<T, YT>(self: &WithdrawTicket<T, YT>, strategy_id: &ID): &StrategyWithdrawInfo<T> {
+    self.strategy_infos.get(strategy_id)
 }
 
 /// Set `to_withdraw`
 public(package) fun set_to_withdraw<T>(self: &mut StrategyWithdrawInfo<T>, to_withdraw: u64) {
     self.to_withdraw = to_withdraw;
+}
+
+/// Set `has_withdrawn`
+public(package) fun set_has_withdrawn<T>(self: &mut StrategyWithdrawInfo<T>, has_withdrawn: bool) {
+    self.has_withdrawn = has_withdrawn;
+}
+
+/// Set `to_withdraw_from_free_balance`
+public(package) fun set_to_withdraw_from_free_balance<T, YT>(self: &mut WithdrawTicket<T, YT>, to_withdraw: u64) {
+    self.to_withdraw_from_free_balance = to_withdraw;
+}
+
+/// Join `withdrawn_balance`
+public fun join_withdrawn_balance<T>(self: &mut StrategyWithdrawInfo<T>, balance: Balance<T>) {
+    self.withdrawn_balance.join(balance);
 }
 
 /* ================= RebalanceInfo ================= */
@@ -129,6 +176,30 @@ public(package) fun rebalance_amounts_get(
     let strategy_id = access.vault_access_id();
     let amts = amounts.inner.get(&strategy_id);
     (amts.can_borrow, amts.to_repay)
+}
+
+/// New RebalanceInfo
+public(package) fun new_rebalance_info(
+    can_borrow: u64,
+    to_repay: u64,
+): RebalanceInfo {
+    RebalanceInfo { can_borrow, to_repay }
+}
+
+/// New RebalanceAmounts
+public(package) fun new_rebalance_amounts(
+    inner: VecMap<ID, RebalanceInfo>,
+): RebalanceAmounts {
+    RebalanceAmounts { inner }
+}
+/// Set `to_repay`
+public(package) fun set_to_repay(self: &mut RebalanceInfo, to_repay: u64) {
+    self.to_repay = to_repay;
+}
+
+/// Set `can_borrow`
+public(package) fun set_can_borrow(self: &mut RebalanceInfo, can_borrow: u64) {
+    self.can_borrow = can_borrow;
 }
 
 /* ================= StrategyState ================= */
@@ -157,6 +228,11 @@ public fun borrowed(self: &StrategyState): u64 {
     self.borrowed
 }
 
+/// Get the `target_alloc_weight_bps` of a strategy
+public fun target_alloc_weight_bps(self: &StrategyState): u64 {
+    self.target_alloc_weight_bps
+}
+
 /// exists `max_borrow`
 public fun exists_max_borrow(self: &StrategyState): bool {
     option::is_some(&self.max_borrow)
@@ -172,6 +248,11 @@ public fun max_borrow(self: &StrategyState): u64 {
 // public(package) fun subtract_from_borrowed(self: &mut StrategyState, amount: u64) {
 //     self.borrowed = self.borrowed - amount;
 // }
+
+/// Set the `borrowed` amount of a strategy
+public(package) fun set_borrowed(self: &mut StrategyState, borrowed: u64) {
+    self.borrowed = borrowed;
+}
 
 /// Set the `max_borrow` amount of a strategy
 public(package) fun set_max_borrow(self: &mut StrategyState, max_borrow: Option<u64>) {
