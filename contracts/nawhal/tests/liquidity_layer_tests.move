@@ -153,7 +153,7 @@ fun check_asset_vault_balance<T, YT>(
 
     let layer = sc.take_shared<LiquidityLayer>();
     
-    let balance_value = layer.borrow_vault().free_balance_value<T, YT>();
+    let balance_value = layer.borrow_vault<T, YT>().cash_value();
 
     assert!(balance_value == expected_vault_balance, 0);
 

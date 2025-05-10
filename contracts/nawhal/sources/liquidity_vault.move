@@ -1064,6 +1064,7 @@ fun test_total_available_balance() {
         id: object::new(&mut ctx),
 
         cash_balance: mint_a_balance(10),
+        loan_amount: 0,
         time_locked_profit: tlb::create(mint_a_balance(200), 0, 1),
         lp_treasury: ya_treasury, 
         strategies,
@@ -1160,6 +1161,7 @@ fun create_vault_for_testing(ctx: &mut TxContext): (LiquidityVault<A, LIQUIDITY_
         id: object::new(ctx),
 
         cash_balance: mint_a_balance(1000),
+        loan_amount: 0,
         time_locked_profit: tlb::create(mint_a_balance(10000), 0, 1),
         lp_treasury: ya_treasury, 
         strategies,
@@ -1502,6 +1504,7 @@ fun test_strategy_get_rebalance_amounts_one_strategy() {
         id: object::new(&mut ctx),
 
         cash_balance: mint_a_balance(1000),
+        loan_amount: 0,
         time_locked_profit: tlb::create(mint_a_balance(10000), 0, 1),
         lp_treasury: ya_treasury, 
         strategies,
@@ -1571,6 +1574,7 @@ fun test_strategy_get_rebalance_amounts_two_strategies_balanced() {
         id: object::new(&mut ctx),
 
         cash_balance: mint_a_balance(1000),
+        loan_amount: 0,
         time_locked_profit: tlb::create(mint_a_balance(10000), 0, 1),
         lp_treasury: ya_treasury, 
         strategies,
@@ -1648,6 +1652,7 @@ fun test_strategy_get_rebalance_amounts_two_strategies_one_balanced() {
         id: object::new(&mut ctx),
 
         cash_balance: mint_a_balance(0),
+        loan_amount: 0,
         time_locked_profit: tlb::create(mint_a_balance(10000), 0, 1),
         lp_treasury: ya_treasury, 
         strategies,
@@ -1724,6 +1729,7 @@ fun test_strategy_get_rebalance_amounts_two_strategies_both_unbalanced() {
         id: object::new(&mut ctx),
 
         cash_balance: mint_a_balance(50),
+        loan_amount: 0,
         time_locked_profit: tlb::create(mint_a_balance(10000), 0, 1),
         lp_treasury: ya_treasury, 
         strategies,
@@ -1809,6 +1815,7 @@ fun test_strategy_get_rebalance_amounts_with_cap_balanced() {
         id: object::new(&mut ctx),
 
         cash_balance: mint_a_balance(0),
+        loan_amount: 0,
         time_locked_profit: tlb::create(mint_a_balance(10000), 0, 1),
         lp_treasury: ya_treasury, 
         strategies,
@@ -1901,6 +1908,7 @@ fun test_strategy_get_rebalance_amounts_with_cap_over_cap() {
         id: object::new(&mut ctx),
 
         cash_balance: mint_a_balance(2500),
+            loan_amount: 0,
         time_locked_profit: tlb::create(mint_a_balance(10000), 0, 1),
         lp_treasury: ya_treasury, 
         strategies,
@@ -2001,6 +2009,7 @@ fun test_strategy_get_rebalance_amounts_with_cap_over_and_under_cap() {
         id: object::new(&mut ctx),
 
         cash_balance: mint_a_balance(2500),
+        loan_amount: 0,
         time_locked_profit: tlb::create(mint_a_balance(10000), 0, 1),
         lp_treasury: ya_treasury, 
         strategies,
@@ -2116,6 +2125,7 @@ fun test_strategy_get_rebalance_amounts_with_cap_over_and_two_under_cap() {
         id: object::new(&mut ctx),
 
         cash_balance: mint_a_balance(2500),
+        loan_amount: 0,
         time_locked_profit: tlb::create(mint_a_balance(10000), 0, 1),
         lp_treasury: ya_treasury, 
         strategies,
@@ -2238,6 +2248,7 @@ fun test_strategy_get_rebalance_amounts_with_cap_over_reduce_and_two_under_cap()
         id: object::new(&mut ctx),
 
         cash_balance: mint_a_balance(2500),
+        loan_amount: 0, 
         time_locked_profit: tlb::create(mint_a_balance(10000), 0, 1),
         lp_treasury: ya_treasury, 
         strategies,
@@ -2328,6 +2339,7 @@ fun test_strategy_hand_over_profit() {
         id: object::new(&mut ctx),
 
         cash_balance: mint_a_balance(1000),
+        loan_amount: 0,
         time_locked_profit: tlb::create(mint_a_balance(10000), 0, 1),
         lp_treasury: ya_treasury, 
         strategies,
@@ -2422,6 +2434,7 @@ fun test_remove_strategy() {
     let mut vault = LiquidityVault<A, LIQUIDITY_VAULT> {
         id: object::new(&mut ctx),
         cash_balance: mint_a_balance(2500),
+        loan_amount: 0,
         time_locked_profit: tlb::create(mint_a_balance(10000), 0, 1),
         lp_treasury: ya_treasury,
         strategies,
