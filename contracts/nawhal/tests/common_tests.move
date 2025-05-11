@@ -3,16 +3,15 @@ module narval::common_tests;
 
 use std::ascii::String;
 
-use sui::balance::{Balance};
 use sui::clock::{Self, Clock};
 use sui::coin::TreasuryCap;
 use sui::test_scenario::{Self as ts, Scenario};
 
-use narval::account_ds::{Self, AccountRegistry, AccountProfileCap};
+use narval::account_ds::{Self, AccountRegistry};
 use narval::account;
 use narval::liquidity_layer_model::LiquidityLayer;
 use narval::liquidity_layer;
-use narval::lending_protocol::LendingProtocol;
+// use narval::lending_protocol::LendingProtocol;
 use narval::admin::AdminCap;
 use narval::ytbtc;
 use narval::ytsui;

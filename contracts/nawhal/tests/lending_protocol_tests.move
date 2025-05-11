@@ -106,7 +106,7 @@ fun check_state_after_op<T, YT>(
     // Check Account Registry state
     sc.next_tx(sender);
 
-    let mut registry = sc.take_shared<AccountRegistry>();
+    let registry = sc.take_shared<AccountRegistry>();
     let profile_cap = sc.take_from_sender<AccountProfileCap>();
     // let profile = registry.borrow_account_mut(profile_cap.account_of());
     // Use the known protocol ID directly

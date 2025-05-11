@@ -5,24 +5,24 @@ module narval::vault_tests;
 
 use sui::coin::{Self, CoinMetadata, TreasuryCap};
 use sui::balance::{Self, Balance};
-use sui::vec_map::{Self, VecMap};
+use sui::vec_map;
 use sui::vec_set::{Self, VecSet};
 use sui::clock;
 
 use narval::access;
 use narval::liquidity_layer_main;
-use narval::protocol::{Self, WithdrawTicket, StrategyState};
+use narval::protocol::{Self, WithdrawTicket};
 use narval::tlb::{Self};
 use narval::util;
 use narval::vault::{Self, Vault};
 
 public struct A has drop {}
 
-public struct VAULT has drop {}
+public struct VAULT_TESTS has drop {}
 
 
-fun create_a_treasury(ctx: &mut TxContext): (TreasuryCap<VAULT>, CoinMetadata<VAULT>) {
-    coin::create_currency(VAULT {}, 6, b"ywhUSDC.e", b"", b"", option::none(), ctx)
+fun create_a_treasury(ctx: &mut TxContext): (TreasuryCap<VAULT_TESTS>, CoinMetadata<VAULT_TESTS>) {
+    coin::create_currency(VAULT_TESTS {}, 6, b"ywhUSDC.e", b"", b"", option::none(), ctx)
 }
 
 fun mint_a_balance(amount: u64): Balance<A> {
@@ -53,7 +53,7 @@ fun test_total_available_balance() {
     vector::push_back(&mut strategy_withdraw_priority_order, object::id_from_address(@0xA));
     vector::push_back(&mut strategy_withdraw_priority_order, object::id_from_address(@0xB));
 
-    let vault = vault::new_for_testing<A, VAULT>(
+    let vault = vault::new_for_testing<A, VAULT_TESTS>(
         mint_a_balance(10),
         tlb::create(mint_a_balance(200), 0, 1),
         ya_treasury,
@@ -119,7 +119,7 @@ fun assert_ticket_total_withdraw<T, YT>(ticket: &WithdrawTicket<T, YT>, total: u
 }
 
 #[test_only]
-fun create_vault_for_testing(ctx: &mut TxContext): (Vault<A, VAULT>, Balance<VAULT>) {
+fun create_vault_for_testing(ctx: &mut TxContext): (Vault<A, VAULT_TESTS>, Balance<VAULT_TESTS>) {
     let (ya_treasury, meta) = create_a_treasury(ctx);
 
     let id_a = object::id_from_address(@0xA);
@@ -143,12 +143,13 @@ fun create_vault_for_testing(ctx: &mut TxContext): (Vault<A, VAULT>, Balance<VAU
         protocol::new_strategy_state(2000, 1000, option::some(1500)),
     );
 
+
     let mut strategy_withdraw_priority_order = vector::empty();
     vector::push_back(&mut strategy_withdraw_priority_order, id_a);
     vector::push_back(&mut strategy_withdraw_priority_order, id_b);
     vector::push_back(&mut strategy_withdraw_priority_order, id_c);
 
-    let mut vault = vault::new_for_testing<A, VAULT>(
+    let mut vault = vault::new_for_testing<A, VAULT_TESTS>(
         mint_a_balance(1000),
         tlb::create(mint_a_balance(10000), 0, 1),
         ya_treasury,
@@ -516,7 +517,7 @@ fun test_strategy_get_rebalance_amounts_one_strategy() {
     let mut strategy_withdraw_priority_order = vector::empty();
     vector::push_back(&mut strategy_withdraw_priority_order, id_a);
 
-    let mut vault = vault::new_for_testing<A, VAULT>(
+    let mut vault = vault::new_for_testing<A, VAULT_TESTS>(
         mint_a_balance(1000),
         tlb::create(mint_a_balance(10000), 0, 1),
         ya_treasury,
@@ -581,7 +582,7 @@ fun test_strategy_get_rebalance_amounts_two_strategies_balanced() {
     vector::push_back(&mut strategy_withdraw_priority_order, id_a);
     vector::push_back(&mut strategy_withdraw_priority_order, id_b);
 
-    let mut vault = vault::new_for_testing<A, VAULT>(
+    let mut vault = vault::new_for_testing<A, VAULT_TESTS>(
         mint_a_balance(1000),
         tlb::create(mint_a_balance(10000), 0, 1),
         ya_treasury,
@@ -654,7 +655,7 @@ fun test_strategy_get_rebalance_amounts_two_strategies_one_balanced() {
     vector::push_back(&mut strategy_withdraw_priority_order, id_a);
     vector::push_back(&mut strategy_withdraw_priority_order, id_b);
 
-    let mut vault = vault::new_for_testing<A, VAULT>(
+    let mut vault = vault::new_for_testing<A, VAULT_TESTS>(
         mint_a_balance(0),
         tlb::create(mint_a_balance(10000), 0, 1),
         ya_treasury,
@@ -727,7 +728,7 @@ fun test_strategy_get_rebalance_amounts_two_strategies_both_unbalanced() {
     vector::push_back(&mut strategy_withdraw_priority_order, id_a);
     vector::push_back(&mut strategy_withdraw_priority_order, id_b);
 
-    let mut vault = vault::new_for_testing<A, VAULT>(
+    let mut vault = vault::new_for_testing<A, VAULT_TESTS>(
         mint_a_balance(50),
         tlb::create(mint_a_balance(10000), 0, 1),
         ya_treasury,
@@ -808,7 +809,7 @@ fun test_strategy_get_rebalance_amounts_with_cap_balanced() {
     vector::push_back(&mut strategy_withdraw_priority_order, id_b);
     vector::push_back(&mut strategy_withdraw_priority_order, id_c);
 
-    let mut vault = vault::new_for_testing<A, VAULT>(
+    let mut vault = vault::new_for_testing<A, VAULT_TESTS>(
         mint_a_balance(0),
         tlb::create(mint_a_balance(10000), 0, 1),
         ya_treasury,
@@ -896,7 +897,7 @@ fun test_strategy_get_rebalance_amounts_with_cap_over_cap() {
     vector::push_back(&mut strategy_withdraw_priority_order, id_b);
     vector::push_back(&mut strategy_withdraw_priority_order, id_c);
 
-    let mut vault = vault::new_for_testing<A, VAULT>(
+    let mut vault = vault::new_for_testing<A, VAULT_TESTS>(
         mint_a_balance(2500),
         tlb::create(mint_a_balance(10000), 0, 1),
         ya_treasury,
@@ -992,7 +993,7 @@ fun test_strategy_get_rebalance_amounts_with_cap_over_and_under_cap() {
     vector::push_back(&mut strategy_withdraw_priority_order, id_c);
     vector::push_back(&mut strategy_withdraw_priority_order, id_d);
 
-    let mut vault = vault::new_for_testing<A, VAULT>(
+    let mut vault = vault::new_for_testing<A, VAULT_TESTS>(
         mint_a_balance(2500),
         tlb::create(mint_a_balance(10000), 0, 1),
         ya_treasury,
@@ -1103,7 +1104,7 @@ fun test_strategy_get_rebalance_amounts_with_cap_over_and_two_under_cap() {
     vector::push_back(&mut strategy_withdraw_priority_order, id_d);
     vector::push_back(&mut strategy_withdraw_priority_order, id_e);
 
-    let mut vault = vault::new_for_testing<A, VAULT>(
+    let mut vault = vault::new_for_testing<A, VAULT_TESTS>(
         mint_a_balance(2500),
         tlb::create(mint_a_balance(10000), 0, 1),
         ya_treasury,
@@ -1221,7 +1222,7 @@ fun test_strategy_get_rebalance_amounts_with_cap_over_reduce_and_two_under_cap()
     vector::push_back(&mut strategy_withdraw_priority_order, id_d);
     vector::push_back(&mut strategy_withdraw_priority_order, id_e);
 
-    let mut vault = vault::new_for_testing<A, VAULT>(
+    let mut vault = vault::new_for_testing<A, VAULT_TESTS>(
         mint_a_balance(2500),
         tlb::create(mint_a_balance(10000), 0, 1),
         ya_treasury,
@@ -1307,7 +1308,7 @@ fun test_strategy_hand_over_profit() {
     let mut strategy_withdraw_priority_order = vector::empty();
     vector::push_back(&mut strategy_withdraw_priority_order, id_a);
 
-    let mut vault = vault::new_for_testing<A, VAULT>(
+    let mut vault = vault::new_for_testing<A, VAULT_TESTS>(
         mint_a_balance(1000),
         tlb::create(mint_a_balance(10000), 0, 1),
         ya_treasury,
@@ -1316,7 +1317,7 @@ fun test_strategy_hand_over_profit() {
         false,
         option::none(),
         vault::default_profit_unlock_duration_sec(),
-        0,
+        1000,
         vault::module_version(),
         &mut ctx,
     );
@@ -1337,10 +1338,11 @@ fun test_strategy_hand_over_profit() {
     assert!(tlb::unlock_start_ts_sec(vault.time_locked_profit()) == util::timestamp_sec(&clock), 0);
     assert!(tlb::unlock_per_second(vault.time_locked_profit()) == 3, 0);
     assert!(tlb::final_unlock_ts_sec(vault.time_locked_profit()) == util::timestamp_sec(&clock) + 4666, 0);
+    std::debug::print(&vault::performance_fee_balance_value(&vault));
     assert!(vault::performance_fee_balance_value(&vault) == 600, 0);
 
-    let fee_yt = balance::create_for_testing<VAULT>(600);
-    let ticket = vault.withdraw<A, VAULT>( fee_yt, &clock);
+    let fee_yt = balance::create_for_testing<VAULT_TESTS>(600);
+    let ticket = vault.withdraw<A, VAULT_TESTS>( fee_yt, &clock);
     let fee_t = vault.redeem_withdraw_ticket(ticket);
     assert!(balance::value(&fee_t) == 500, 0);
 
@@ -1385,7 +1387,7 @@ fun test_remove_strategy() {
     vector::push_back(&mut strategy_withdraw_priority_order, id_b);
     vector::push_back(&mut strategy_withdraw_priority_order, id_c);
 
-    let mut vault = vault::new_for_testing<A, VAULT>(
+    let mut vault = vault::new_for_testing<A, VAULT_TESTS>(
         mint_a_balance(2500),
         tlb::create(mint_a_balance(10000), 0, 1),
         ya_treasury,
@@ -1406,8 +1408,8 @@ fun test_remove_strategy() {
     let mut clock = clock::create_for_testing(&mut ctx);
     clock::increment_for_testing(&mut clock, 1000 * 1000);
 
-    let admin_cap = access::new_admin_cap<VAULT>(&mut ctx);
-    let ticket = protocol::new_strategy_removal_ticket<A, VAULT>(vault_access_b, mint_a_balance(10000));
+    let admin_cap = access::new_admin_cap<VAULT_TESTS>(&mut ctx);
+    let ticket = protocol::new_strategy_removal_ticket<A, VAULT_TESTS>(vault_access_b, mint_a_balance(10000));
     let mut ids_for_weights = vector::empty();
     
     vector::push_back(&mut ids_for_weights, id_a);
@@ -1424,7 +1426,7 @@ fun test_remove_strategy() {
     let mut exp_priority_order = vector::empty();
     vector::push_back(&mut exp_priority_order, id_a);
     vector::push_back(&mut exp_priority_order, id_c);
-    
+
     assert!(vault.strategy_withdraw_priority_order() == exp_priority_order, 0);
 
     sui::test_utils::destroy(vault);
