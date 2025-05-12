@@ -1,9 +1,88 @@
 
 module narval::protocol;
 
-use narval::access::{VaultAccess};
+use std::type_name::TypeName;
+
 use sui::balance::{Balance};
 use sui::vec_map::{VecMap};
+
+use narval::access::{VaultAccess};
+
+/* ================= Errors ================= */
+// const EInvalidLiquidityStatus: u64 = 0;
+// const EAssetTypeAlreadyExisted: u64 = 1;
+
+/* ================= Structs ================= */
+
+public struct ProtocolConfig has copy, drop, store {
+    protocol_id: ID,
+    pt: TypeName,
+    yt: TypeName,
+    amount: u64,
+    protocol_type: ProtocolType,
+}
+
+public enum ProtocolType has copy, drop, store {
+    Lending,
+    Vault,
+    DEX,
+}
+
+/// Translate ProtocolType from u8 to ProtocolType
+public fun protocol_type_from_u8(protocol_type: u8): ProtocolType {
+    match (protocol_type) {
+        1 => new_vault_protocol_type(),
+        2 => new_dex_protocol_type(),
+        _ => new_lending_protocol_type(),
+    }
+
+}
+
+/// New a new LendingProtocolType
+public fun new_lending_protocol_type(): ProtocolType {
+    ProtocolType::Lending
+}
+
+/// New a new VaultProtocolType
+public fun new_vault_protocol_type(): ProtocolType {
+    ProtocolType::Vault
+}
+
+/// New a new DEXProtocolType
+public fun new_dex_protocol_type(): ProtocolType {
+    ProtocolType::DEX
+}
+
+/// New a new ProtocolConfig
+public fun new_protocol_config(protocol_id: ID, pt: TypeName, yt: TypeName, amount: u64, protocol_type: ProtocolType): ProtocolConfig {
+    ProtocolConfig {
+        protocol_id,
+        pt,
+        yt,
+        amount,
+        protocol_type,
+    }
+}
+
+/// Get asset type from protocol config
+public fun pt(self: &ProtocolConfig): &TypeName {
+    &self.pt
+}
+
+/// Get yt from protocol config
+public fun yt(self: &ProtocolConfig): &TypeName {
+    &self.yt
+}
+
+/// Get amount of protocol config
+public fun amount(self: &ProtocolConfig): u64 {
+    self.amount
+}
+
+/// Set amount of protocol config
+public(package) fun set_amount(self: &mut ProtocolConfig, amount: u64) {
+    self.amount = amount;
+}
 
 /* ================= StrategyRemovalTicket ================= */
 
@@ -36,7 +115,7 @@ public struct StrategyWithdrawInfo<phantom T> has store {
 }
 
 public struct WithdrawTicket<phantom T, phantom YT> {
-    to_withdraw_from_free_balance: u64,
+    to_withdraw_from_available_balance: u64,
     strategy_infos: VecMap<ID, StrategyWithdrawInfo<T>>,
     lp_to_burn: Balance<YT>,
 }
@@ -76,12 +155,12 @@ public(package) fun join_lp_to_burn<T, YT>(self: &mut WithdrawTicket<T, YT>, bal
 
 /// New WithdrawTicket
 public(package) fun new_withdraw_ticket<T, YT>(
-    to_withdraw_from_free_balance: u64,
+    to_withdraw_from_available_balance: u64,
     strategy_infos: VecMap<ID, StrategyWithdrawInfo<T>>,
     lp_to_burn: Balance<YT>,
 ): WithdrawTicket<T, YT> {
     WithdrawTicket {
-        to_withdraw_from_free_balance,
+        to_withdraw_from_available_balance,
         strategy_infos,
         lp_to_burn,
     }
@@ -89,8 +168,8 @@ public(package) fun new_withdraw_ticket<T, YT>(
 
 /// Extract `WithdrawTicket` to its inner values
 public(package) fun extract_withdraw_ticket<T, YT>(self: WithdrawTicket<T, YT>): (u64, VecMap<ID, StrategyWithdrawInfo<T>>, Balance<YT>) {
-    let WithdrawTicket { to_withdraw_from_free_balance, strategy_infos, lp_to_burn } = self;
-    (to_withdraw_from_free_balance, strategy_infos, lp_to_burn)
+    let WithdrawTicket { to_withdraw_from_available_balance, strategy_infos, lp_to_burn } = self;
+    (to_withdraw_from_available_balance, strategy_infos, lp_to_burn)
 }
 
 /// Get `lp_to_burn` value
@@ -108,9 +187,9 @@ public fun has_withdrawn<T>(self: &StrategyWithdrawInfo<T>): bool {
     self.has_withdrawn
 }
 
-/// Get `to_withdraw_from_free_balance`
-public fun to_withdraw_from_free_balance_value<T, YT>(self: &WithdrawTicket<T, YT>): u64 {
-    self.to_withdraw_from_free_balance
+/// Get `to_withdraw_from_available_balance`
+public fun to_withdraw_from_available_balance_value<T, YT>(self: &WithdrawTicket<T, YT>): u64 {
+    self.to_withdraw_from_available_balance
 }
 
 /// Get `strategy_infos` size
@@ -143,9 +222,9 @@ public(package) fun set_has_withdrawn<T>(self: &mut StrategyWithdrawInfo<T>, has
     self.has_withdrawn = has_withdrawn;
 }
 
-/// Set `to_withdraw_from_free_balance`
-public(package) fun set_to_withdraw_from_free_balance<T, YT>(self: &mut WithdrawTicket<T, YT>, to_withdraw: u64) {
-    self.to_withdraw_from_free_balance = to_withdraw;
+/// Set `to_withdraw_from_available_balance`
+public(package) fun set_to_withdraw_from_available_balance<T, YT>(self: &mut WithdrawTicket<T, YT>, to_withdraw: u64) {
+    self.to_withdraw_from_available_balance = to_withdraw;
 }
 
 /// Join `withdrawn_balance`

@@ -15,10 +15,10 @@ use sui::table::{Self, Table};
 use sui::clock::Clock;
 
 use narval::admin::AdminCap;
-use narval::liquidity_layer_model::{LiquidityLayer, new_lending_protocol_type};
-use narval::liquidity_layer;
+use narval::layer::{Self, LiquidityLayer};
 use narval::account_ds::{AccountRegistry, AccountProfileCap};
 use narval::position::{Self, StakingInfo};
+use narval::protocol::{Self, ProtocolType};
 
 // ------- Errors ------- //
 const EInsufficientBalance: u64 = 20001;
@@ -71,7 +71,7 @@ public fun deposit<T, YT>(
 
 
     let asset_amount = payload.value();
-    let shares = liquidity_layer::deposit<T, YT>(liquidity_layer, protocol_id, payload.into_balance(), clock, ctx);
+    let shares = layer::deposit<T, YT>(liquidity_layer, protocol_id, payload.into_balance(), clock, ctx);
 
     self.add_staking_shares<T, YT>(account_id, shares, asset_amount, now);
 }
@@ -141,7 +141,7 @@ public fun withdraw<T, YT>(
     let shares_to_withdraw_balance = self.take_staking_shares<T, YT>(account_id, shares_amount_to_take, now); 
 
     // 4. Withdraw from Liquidity Layer using the taken shares
-    let withdrawn_balance_t = liquidity_layer::withdraw<T, YT>(liquidity_layer, protocol_id, shares_to_withdraw_balance, clock, ctx);
+    let withdrawn_balance_t = layer::withdraw<T, YT>(liquidity_layer, protocol_id, shares_to_withdraw_balance, clock, ctx);
     
     // 5. Return the actual withdrawn Balance<T>
     withdrawn_balance_t
@@ -170,7 +170,7 @@ public fun register_lending_protocol<T, YT>(
     let lending_protocol = new_lending_protocol<T, YT>(supply_cap, ctx);
     let protocol_id = lending_protocol.protocol_id(); // Get ID before sharing
 
-    liquidity_layer::register_protocol<T>(liquidity_layer, admin_cap, protocol_id, new_lending_protocol_type(), ctx);
+    layer::register_protocol<T, YT>(liquidity_layer, admin_cap, protocol_id, protocol::new_lending_protocol_type(), ctx);
     
     transfer::share_object(lending_protocol);
     protocol_id // Return the ID

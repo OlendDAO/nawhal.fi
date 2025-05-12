@@ -8,7 +8,7 @@ use sui::balance::Balance;
 use sui::clock::Clock;
 
 use narval::lending_protocol::{Self, LendingProtocol};
-use narval::liquidity_layer_model::{LiquidityLayer};
+use narval::layer::{LiquidityLayer};
 use narval::admin::AdminCap;
 use narval::account_ds::{AccountRegistry, AccountProfileCap};
 use narval::ytbtc::YTBTC;
@@ -92,7 +92,8 @@ fun check_state_after_op<T, YT>(
     sc.next_tx(sender);
     let layer = sc.take_shared<LiquidityLayer>();
 
-    assert_eq(layer.vault_cash_balance<T, YT>(), expected_layer_balance);
+    assert_eq(layer.vault_available_balance<T, YT>(), expected_layer_balance);
+    
     // Check protocol amount using the known protocol ID
     let protocol = sc.take_shared_by_id<LendingProtocol<T, YT>>(protocol_id);
     // let actual_protocol_id = protocol_obj.protocol_id();

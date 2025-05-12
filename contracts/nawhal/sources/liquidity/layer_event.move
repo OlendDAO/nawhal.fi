@@ -1,6 +1,6 @@
 //! Event module for nawhal
 
-module narval::liquidity_event;
+module narval::layer_event;
 
 use std::ascii::String;
 
@@ -68,7 +68,7 @@ public struct LiquidityLayerResumedEvent has copy, drop, store {
     resumed_at_epoch: u64,
 }
 // ------ Event emitters ------ //
-/// LiquidityLayerResumedEvent is emitted when a liquidity layer is resumed.
+/// LiquidityLayerCreatedEvent is emitted when a new liquidity layer is created.
 /// Emit LiquidityLayerCreatedEvent
 public fun emit_liquidity_layer_created_event(layer_id: ID, created_at_ms: u64, created_at_epoch: u64) {
     let event = LiquidityLayerCreatedEvent {

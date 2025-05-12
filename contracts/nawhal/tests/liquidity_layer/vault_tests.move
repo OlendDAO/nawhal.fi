@@ -10,7 +10,6 @@ use sui::vec_set::{Self, VecSet};
 use sui::clock;
 
 use narval::access;
-use narval::liquidity_layer_main;
 use narval::protocol::{Self, WithdrawTicket};
 use narval::tlb::{Self};
 use narval::util;
@@ -80,13 +79,13 @@ fun test_total_available_balance() {
 #[test_only]
 fun assert_ticket_values<T, TY>(
     ticket: &WithdrawTicket<T, TY>,
-    to_withdraw_from_free_balance: u64,
+    to_withdraw_from_available_balance: u64,
     keys: vector<ID>,
     to_withdraw_values: vector<u64>,
     lp_to_burn_amount: u64,
 ) {
     assert!(vector::length(&keys) == vector::length(&to_withdraw_values), 0);
-    assert!(ticket.to_withdraw_from_free_balance_value() == to_withdraw_from_free_balance, 0);
+    assert!(ticket.to_withdraw_from_available_balance_value() == to_withdraw_from_available_balance, 0);
     let mut seen: VecSet<ID> = vec_set::empty();
     let mut i = 0;
     let n = vector::length(&keys);
@@ -107,7 +106,7 @@ fun assert_ticket_values<T, TY>(
 fun assert_ticket_total_withdraw<T, YT>(ticket: &WithdrawTicket<T, YT>, total: u64) {
     let mut i = 0;
     let n = ticket.strategy_infos_size();
-    let mut total_withdraw = ticket.to_withdraw_from_free_balance_value();
+    let mut total_withdraw =    ticket.to_withdraw_from_available_balance_value();
 
     while (i < n) {
         let (_, strategy_withdraw_info) = protocol::get_strategy_info_by_idx(ticket, i);
@@ -142,7 +141,6 @@ fun create_vault_for_testing(ctx: &mut TxContext): (Vault<A, VAULT_TESTS>, Balan
         id_c,
         protocol::new_strategy_state(2000, 1000, option::some(1500)),
     );
-
 
     let mut strategy_withdraw_priority_order = vector::empty();
     vector::push_back(&mut strategy_withdraw_priority_order, id_a);
@@ -491,8 +489,8 @@ fun test_withdraw_ticket_redeem() {
     let strat_state_c = vault::get_strategy_by_id(&vault, &id_c);
     assert!(strat_state_c.borrowed() == 1000, 0);
 
-    assert!(vault.free_balance_value() == 0, 0);
-    assert!(vault.total_yt_supply() == 5500, 0);
+    assert!(vault.available_balance<A, VAULT_TESTS>() == 0, 0);
+    assert!(vault.total_yt_supply<A, VAULT_TESTS>() == 5500, 0);
 
     sui::test_utils::destroy(vault);
     sui::test_utils::destroy(lp);
@@ -1332,13 +1330,13 @@ fun test_strategy_hand_over_profit() {
     let profit = balance::create_for_testing<A>(5000);
     vault::strategy_hand_over_profit(&mut vault, &vault_access_a, profit, &clock);
 
-    assert!(vault::free_balance_value(&vault) == 2000, 0);
+    assert!(vault::available_balance_value(&vault) == 2000, 0);
     assert!(tlb::remaining_unlock(vault.time_locked_profit(), &clock) == 13998, 0);
     assert!(tlb::extraneous_locked_amount(vault.time_locked_profit()) == 2, 0);
     assert!(tlb::unlock_start_ts_sec(vault.time_locked_profit()) == util::timestamp_sec(&clock), 0);
     assert!(tlb::unlock_per_second(vault.time_locked_profit()) == 3, 0);
     assert!(tlb::final_unlock_ts_sec(vault.time_locked_profit()) == util::timestamp_sec(&clock) + 4666, 0);
-    std::debug::print(&vault::performance_fee_balance_value(&vault));
+    // std::debug::print(&vault::performance_fee_balance_value(&vault));
     assert!(vault::performance_fee_balance_value(&vault) == 600, 0);
 
     let fee_yt = balance::create_for_testing<VAULT_TESTS>(600);
@@ -1408,7 +1406,7 @@ fun test_remove_strategy() {
     let mut clock = clock::create_for_testing(&mut ctx);
     clock::increment_for_testing(&mut clock, 1000 * 1000);
 
-    let admin_cap = access::new_admin_cap<VAULT_TESTS>(&mut ctx);
+    let admin_cap = access::new_vault_cap(&mut ctx);
     let ticket = protocol::new_strategy_removal_ticket<A, VAULT_TESTS>(vault_access_b, mint_a_balance(10000));
     let mut ids_for_weights = vector::empty();
     
@@ -1417,7 +1415,7 @@ fun test_remove_strategy() {
     let mut new_weights = vector::empty();
     vector::push_back(&mut new_weights, 30_00);
     vector::push_back(&mut new_weights, 70_00);
-    liquidity_layer_main::remove_strategy(&admin_cap, &mut vault, ticket, ids_for_weights, new_weights, &clock);
+    vault::remove_strategy(&admin_cap, &mut vault, ticket, ids_for_weights, new_weights, &clock);
 
     assert!(vault::strategies_size(&vault) == 2, 0);
     assert!(vault::get_mut_strategy_state(&mut vault, &id_a).target_alloc_weight_bps() == 30_00, 0);

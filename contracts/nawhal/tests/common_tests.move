@@ -9,8 +9,8 @@ use sui::test_scenario::{Self as ts, Scenario};
 
 use narval::account_ds::{Self, AccountRegistry};
 use narval::account;
-use narval::liquidity_layer_model::LiquidityLayer;
-use narval::liquidity_layer;
+use narval::layer::{Self, LiquidityLayer};
+use narval::liquidity_layer_main;
 // use narval::lending_protocol::LendingProtocol;
 use narval::admin::AdminCap;
 use narval::ytbtc;
@@ -105,7 +105,7 @@ public fun register_user_for_testing(
 public fun init_liquidity_layer_for_testing(sc: &mut Scenario, sender: address) {
     sc.next_tx(sender);
 
-    liquidity_layer::init_for_testing(sc.ctx());
+    layer::init_for_testing(sc.ctx());
 }
 
 // Initialize a new AccountRegistry for testing
@@ -121,7 +121,7 @@ public fun register_asset_vault_for_testing<T, YT>(sc: &mut Scenario, sender: ad
     let mut layer = sc.take_shared<LiquidityLayer>();
     let admin_cap = sc.take_from_sender<AdminCap>();
     let lp_treasury = sc.take_from_sender<TreasuryCap<YT>>();
-    let vault_cap = liquidity_layer::register_vault_by_admin_cap<T, YT>(&mut layer, &admin_cap, lp_treasury, sc.ctx());
+    let vault_cap = liquidity_layer_main::register_vault_by_admin_cap<T, YT>(&mut layer, &admin_cap, lp_treasury, sc.ctx());
     ts::return_shared(layer);
     sc.return_to_sender(admin_cap);
     transfer::public_transfer(vault_cap, sender);

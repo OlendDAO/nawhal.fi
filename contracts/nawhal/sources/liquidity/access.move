@@ -1,21 +1,22 @@
 
 module narval::access;
 
-/* ================= AdminCap ================= */
 
-/// There can only ever be one `AdminCap` for a `Vault`
-public struct AdminCap<phantom YT> has key, store {
+/* ================= VaultAccess ================= */
+
+/// There can only ever be one `VaultCap` for a `Vault`
+/// `T` is the type of the asset in the vault
+/// `YT` is the type of the yield token in the vault
+public struct VaultCap<phantom T, phantom YT> has key, store {
     id: UID,
 }
 
-/// Create a new `AdminCap`
-public(package) fun new_admin_cap<YT>(ctx: &mut TxContext): AdminCap<YT> {
-    AdminCap {
+/// Create a new `VaultCap`
+public(package) fun new_vault_cap<T, YT>(ctx: &mut TxContext): VaultCap<T, YT> {
+    VaultCap {
         id: object::new(ctx),
     }
 }
-
-/* ================= VaultAccess ================= */
 
 /// Strategies store this and it gives them access to deposit and withdraw
 /// from the vault
