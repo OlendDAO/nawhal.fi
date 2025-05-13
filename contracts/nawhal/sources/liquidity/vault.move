@@ -122,7 +122,31 @@ public struct Vault<phantom T, phantom YT> has key, store {
     profit_unlock_duration_sec: u64,
     /// performance fee in basis points (taken from all profits)
     performance_fee_bps: u64,
+
+    status: Status,
+
     version: u64,
+}
+
+public enum Status has copy, drop, store {
+    Active,
+    Paused,
+    Closed,
+}
+
+/// New an Active Status 
+public fun new_active_status(): Status {
+    Status::Active
+}
+
+/// New a Paused Status 
+public fun new_paused_status(): Status {
+    Status::Paused
+}
+
+/// New a Closed Status 
+public fun new_closed_status(): Status {
+    Status::Closed
 }
 
 public(package) fun new<T, YT>(lp_treasury: TreasuryCap<YT>, ctx: &mut TxContext): (Vault<T, YT>, VaultCap<T, YT>) {
@@ -140,8 +164,10 @@ public(package) fun new<T, YT>(lp_treasury: TreasuryCap<YT>, ctx: &mut TxContext
         tvl_cap: option::none(),
         profit_unlock_duration_sec: DEFAULT_PROFIT_UNLOCK_DURATION_SEC,
         performance_fee_bps: 0,
+        status: new_active_status(),
         version: MODULE_VERSION,
     };
+
     // transfer::share_object(vault);
 
     // since there can be only one `TreasuryCap<YT>` for type `YT`, there can be only
@@ -235,11 +261,6 @@ public fun borrow_mut_lp_treasury<T, YT>(vault: &mut Vault<T, YT>): &mut Treasur
 public fun get_mut_strategy_state<T, YT>(vault: &mut Vault<T, YT>, strategy_id: &ID): &mut StrategyState {
     vault.strategies.get_mut(strategy_id)
 }
-
-// /// Remove specific strategy from `strategies`
-// public(package) fun remove_strategy<T, YT>(vault: &mut Vault<T, YT>, strategy_id: &ID): (ID, StrategyState) {
-//     vault.strategies.remove(strategy_id)
-// }
 
 /// Top up to `time_locked_profit`
 public fun top_up_time_locked_profit<T, YT>(vault: &mut Vault<T, YT>, balance: Balance<T>, clock: &Clock) {
@@ -394,6 +415,32 @@ public fun add_strategy<T, YT>(
 
     access
 }
+
+/// Set the status of the vault
+public fun set_status<T, YT>(
+    _cap: &VaultCap<T, YT>,
+    vault: &mut Vault<T, YT>,
+    status: Status,
+) {
+    vault.assert_version();
+    vault.status = status;
+}
+
+entry fun pause<T, YT>(
+    _cap: &VaultCap<T, YT>,
+    vault: &mut Vault<T, YT>,
+) {
+    vault.assert_version();
+    vault.status = new_paused_status();
+}
+
+entry fun resume<T, YT>(
+    _cap: &VaultCap<T, YT>,
+    vault: &mut Vault<T, YT>,
+) {
+    vault.assert_version();
+    vault.status = new_active_status();
+}   
 
 entry fun set_tvl_cap<T, YT>(
     _cap: &VaultCap<T, YT>,
@@ -1067,6 +1114,7 @@ public fun new_for_testing<T, YT>(
         profit_unlock_duration_sec,
         tvl_cap,
         version,
+        status: new_active_status(),
         withdraw_ticket_issued,
     }
 }

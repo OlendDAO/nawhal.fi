@@ -146,13 +146,20 @@ public(package) fun share_object(self: LiquidityLayer) {
 }
 
 /// Add an asset type to the liquidity layer
-public(package) fun add_vault_asset_type(self: &mut LiquidityLayer, pt: TypeName, yt: TypeName, vault_id: ID) {
+fun add_vault_asset_type(self: &mut LiquidityLayer, pt: TypeName, yt: TypeName, vault_id: ID) {
     self.asset_types.insert(new_vault_item(pt, yt), vault_id);
 }
 
 /// Add a `Vault` to the liquidity layer
 public(package) fun add_vault<T, YT>(self: &mut LiquidityLayer, vault_id: ID, vault: Vault<T, YT>) {
     self.vault_registry.add(vault_id, vault);
+    self.add_vault_asset_type(type_name::get<T>(), type_name::get<YT>(), vault_id);
+}
+
+/// Remove a `Vault` from the liquidity layer
+public(package) fun remove_vault<T, YT>(self: &mut LiquidityLayer, vault_id: ID): Vault<T, YT> {
+    self.asset_types.remove(&new_vault_item(type_name::get<T>(), type_name::get<YT>()));
+    self.vault_registry.remove(vault_id)
 }
 
 /// Add a protocol to the liquidity layer
@@ -344,25 +351,6 @@ public fun withdraw<T, YT>(self: &mut LiquidityLayer, protocol_id: ID, shares: B
     withdrawn_balance_t
 }
 
-/// Register a new protocol to the LiquidityLayer
-/// Pause the liquidity layer
-public fun register_protocol<T, YT>(self: &mut LiquidityLayer, _admin_cap: &AdminCap, protocol_id: ID, protocol_type: ProtocolType, ctx: &mut TxContext) {
-    let pt = type_name::get<T>();
-    let yt = type_name::get<YT>();
-
-    self.check_liquidity_layer_is_active();
-    self.check_asset_type_exists(pt, yt);
-    self.check_protocol_not_exists(&protocol_id);
-    
-    self.add_protocol(
-        protocol_id, 
-        protocol::new_protocol_config(protocol_id, pt, yt, 0, protocol_type)
-    );
-
-    // Emit protocol registered event
-    layer_event::emit_protocol_registered_event(self.layer_id(), protocol_id, pt.into_string(), ctx.epoch_timestamp_ms(), ctx.epoch());
-}
-
 /* ================= Governance functions ================= */
 
 /// Register a new asset vault to the LiquidityLayer.
@@ -389,7 +377,6 @@ fun register_asset_vault<T, YT>(
             
     let vault_id = vault.id();
 
-    self.add_vault_asset_type(pt, yt, vault_id);
     self.add_vault(vault_id, vault);  
 
     // Emit vault registered event
@@ -408,11 +395,51 @@ public fun register_vault_by_admin_cap<T, YT>(
     register_asset_vault<T, YT>(self, lp_treasury, ctx)
 }
 
+/// Unregister an asset vault from the LiquidityLayer
+/// TODO:
+public fun unregister_vault<T, YT>(
+    _self: &mut LiquidityLayer, 
+    _admin_cap: &AdminCap, 
+    _vault_id: ID, 
+    _ctx: &mut TxContext
+) {
+    // let pt = type_name::get<T>();
+    // let yt = type_name::get<YT>();
+
+    // self.check_liquidity_layer_is_active();
+    // self.check_asset_type_exists(pt, yt);
+
+    // // TODO: Check if the vault doesn't have any balances
+    // self.remove_vault(vault_id);
+    
+    abort 0
+}
+
+/// Register a new protocol to the LiquidityLayer
+/// Pause the liquidity layer
+public fun register_protocol<T, YT>(self: &mut LiquidityLayer, _admin_cap: &AdminCap, protocol_id: ID, protocol_type: ProtocolType, ctx: &mut TxContext) {
+    let pt = type_name::get<T>();
+    let yt = type_name::get<YT>();
+
+    self.check_liquidity_layer_is_active();
+    self.check_asset_type_exists(pt, yt);
+    self.check_protocol_not_exists(&protocol_id);
+    
+    self.add_protocol(
+        protocol_id, 
+        protocol::new_protocol_config(protocol_id, pt, yt, 0, protocol_type)
+    );
+
+    // Emit protocol registered event
+    layer_event::emit_protocol_registered_event(self.layer_id(), protocol_id, pt.into_string(), ctx.epoch_timestamp_ms(), ctx.epoch());
+}
+
 /// Remove a protocol from the LiquidityLayer
 public fun unregister_protocol(self: &mut LiquidityLayer, _admin_cap: &AdminCap, protocol_id: ID, ctx: &mut TxContext) {
     self.check_liquidity_layer_is_active();
+    self.check_protocol_exists(&protocol_id);
 
-
+    // TODO: Check if the protocol doesn't have any debts
     self.remove_protocol(protocol_id);
 
     // Emit protocol unregistered event
