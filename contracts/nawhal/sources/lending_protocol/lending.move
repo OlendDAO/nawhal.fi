@@ -10,15 +10,15 @@ module narval::lending_protocol;
 
 
 use sui::balance::{Self, Balance};
-use sui::coin::{Self, Coin};
+use sui::coin::{Coin};
 use sui::table::{Self, Table};
 use sui::clock::Clock;
 
 use narval::admin::AdminCap;
-use narval::layer::{Self, LiquidityLayer};
+use narval::liquidity::{Self, LiquidityLayer};
 use narval::account_ds::{AccountRegistry, AccountProfileCap};
 use narval::position::{Self, StakingInfo};
-use narval::protocol::{Self, ProtocolType};
+use narval::protocol::{Self};
 
 // ------- Errors ------- //
 const EInsufficientBalance: u64 = 20001;
@@ -71,42 +71,15 @@ public fun deposit<T, YT>(
 
 
     let asset_amount = payload.value();
-    let shares = layer::deposit<T, YT>(liquidity_layer, protocol_id, payload.into_balance(), clock, ctx);
+    let shares = liquidity::deposit<T, YT>(liquidity_layer, protocol_id, payload.into_balance(), clock, ctx);
 
     self.add_staking_shares<T, YT>(account_id, shares, asset_amount, now);
-}
-
-/// Entry fun for deposit
-public entry fun deposit_api<T, YT>(
-    self: &mut LendingProtocol<T, YT>, 
-    liquidity_layer: &mut LiquidityLayer, 
-    registry: &mut AccountRegistry, 
-    payload: Coin<T>, 
-    clock: &Clock, 
-    ctx: &mut TxContext
-) {
-    deposit<T, YT>(self, liquidity_layer, registry, payload, clock, ctx);
-}
-
-/// Entry fun for withdraw
-public entry fun withdraw_api<T, YT>(
-    self: &mut LendingProtocol<T, YT>, 
-    liquidity_layer: &mut LiquidityLayer, 
-    registry: &mut AccountRegistry, 
-    cap: &AccountProfileCap,
-    amount: u64, // Value amount requested by user
-    clock: &Clock, 
-    ctx: &mut TxContext
-) {
-    let withdrawn_balance_t = withdraw<T, YT>(self, liquidity_layer, registry, cap, amount, clock, ctx);
-    
-    transfer::public_transfer(coin::from_balance<T>(withdrawn_balance_t, ctx), ctx.sender());
 }
 
 /// Withdraw assets from the protocol
 public fun withdraw<T, YT>(
     self: &mut LendingProtocol<T, YT>, 
-    liquidity_layer: &mut LiquidityLayer, 
+    layer: &mut LiquidityLayer, 
     registry: &mut AccountRegistry, 
     cap: &AccountProfileCap,
     amount: u64, // Value amount requested by user
@@ -141,7 +114,7 @@ public fun withdraw<T, YT>(
     let shares_to_withdraw_balance = self.take_staking_shares<T, YT>(account_id, shares_amount_to_take, now); 
 
     // 4. Withdraw from Liquidity Layer using the taken shares
-    let withdrawn_balance_t = layer::withdraw<T, YT>(liquidity_layer, protocol_id, shares_to_withdraw_balance, clock, ctx);
+    let withdrawn_balance_t = liquidity::withdraw<T, YT>(layer, protocol_id, shares_to_withdraw_balance, clock, ctx);
     
     // 5. Return the actual withdrawn Balance<T>
     withdrawn_balance_t
@@ -170,21 +143,12 @@ public fun register_lending_protocol<T, YT>(
     let lending_protocol = new_lending_protocol<T, YT>(supply_cap, ctx);
     let protocol_id = lending_protocol.protocol_id(); // Get ID before sharing
 
-    layer::register_protocol<T, YT>(liquidity_layer, admin_cap, protocol_id, protocol::new_lending_protocol_type(), ctx);
+    liquidity::register_protocol<T, YT>(liquidity_layer, admin_cap, protocol_id, protocol::new_lending_protocol_type(), ctx);
     
     transfer::share_object(lending_protocol);
     protocol_id // Return the ID
 }
 
-/// Entry fun for register lending protocol
-public entry fun register_lending_protocol_api<T, YT>(
-    liquidity_layer: &mut LiquidityLayer, 
-    admin_cap: &AdminCap, 
-    supply_cap: u64, 
-    ctx: &mut TxContext
-) { 
-    register_lending_protocol<T, YT>(liquidity_layer, admin_cap, supply_cap, ctx);
-}
 
 // ------- new structs ------- //
 /// New a new LendingProtocol

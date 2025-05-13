@@ -50,6 +50,14 @@ public struct ProtocolRegisteredEvent has copy, drop, store {
     registered_at_epoch: u64,
 }  
 
+/// ProtocolUnregisteredEvent is emitted when a protocol is unregistered.
+public struct ProtocolUnregisteredEvent has copy, drop, store {
+    layer_id: ID,
+    protocol_id: ID,
+    unregistered_at_ms: u64,
+    unregistered_at_epoch: u64,
+}
+
 /// LiquidityLayerPausedEvent is emitted when a liquidity layer is paused.
 public struct LiquidityLayerPausedEvent has copy, drop, store {
     layer_id: ID,
@@ -153,6 +161,18 @@ public fun emit_protocol_registered_event(layer_id: ID, protocol_id: ID, asset_t
         asset_type,
         registered_at_ms,
         registered_at_epoch,
+    };
+
+    emit(event);
+}
+
+/// Emit ProtocolUnregisteredEvent
+public fun emit_protocol_unregistered_event(layer_id: ID, protocol_id: ID, unregistered_at_ms: u64, unregistered_at_epoch: u64) {
+    let event = ProtocolUnregisteredEvent {
+        layer_id,
+        protocol_id,
+        unregistered_at_ms,
+        unregistered_at_epoch,
     };
 
     emit(event);

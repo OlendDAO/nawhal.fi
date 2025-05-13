@@ -12,7 +12,15 @@ use sui::event;
 use sui::vec_map::{Self, VecMap};
 use sui::vec_set::{Self};
 use narval::access::{Self, VaultCap, VaultAccess};
-use narval::protocol::{Self, StrategyState, RebalanceInfo, RebalanceAmounts, WithdrawTicket, StrategyWithdrawInfo, StrategyRemovalTicket};
+use narval::protocol::{
+    Self, 
+    StrategyState, 
+    RebalanceInfo, 
+    RebalanceAmounts, 
+    WithdrawTicket, 
+    StrategyWithdrawInfo, 
+    StrategyRemovalTicket
+};
 use narval::tlb::{Self as tlb, TimeLockedBalance};
 use narval::util::{muldiv, muldiv_round_up, timestamp_sec};
 
@@ -91,7 +99,7 @@ public struct StrategyLossEvent<phantom YT> has copy, drop {
 }
 
 /* ================= Vault ================= */
-
+// TODO: migrate strategies to `LiquidityLayer`
 public struct Vault<phantom T, phantom YT> has key, store {
     id: UID,
     /// balance that's not allocated to any strategy
@@ -140,15 +148,6 @@ public(package) fun new<T, YT>(lp_treasury: TreasuryCap<YT>, ctx: &mut TxContext
     // one `Vault<T, YT>` and `AdminCap<YT>` for type `YT` as well.
     (vault,access::new_vault_cap(ctx))
 }
-
-// // Creates a new `Vault` using the package's `UpgradeCap` as authority.
-// public(package) fun new_with_admin_cap<T, YT>(
-//     _cap: &AdminCap,
-//     lp_treasury: TreasuryCap<YT>,
-//     ctx: &mut TxContext,
-// ): VaultCap<T, YT> {
-//     new<T, YT>(lp_treasury, ctx)
-// }
 
 /* ================= read ================= */
 /// Get the `id` of the vault

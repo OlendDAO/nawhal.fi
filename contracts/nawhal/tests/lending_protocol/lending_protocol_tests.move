@@ -8,7 +8,7 @@ use sui::balance::Balance;
 use sui::clock::Clock;
 
 use narval::lending_protocol::{Self, LendingProtocol};
-use narval::layer::{LiquidityLayer};
+use narval::liquidity::{LiquidityLayer};
 use narval::admin::AdminCap;
 use narval::account_ds::{AccountRegistry, AccountProfileCap};
 use narval::ytbtc::YTBTC;
