@@ -9,6 +9,15 @@ published-at = "0x891b34e2e9d6976f42a40520d862d69e1030969670c5f5f11aad3dce3a3742
 Sui = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/sui-framework", rev = "mainnet-v1.41.2", override = true }
 MoveStdlib = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/move-stdlib", rev = "mainnet-v1.41.2", override = true }
 
+Pyth = { local = "../_vendor/Pyth" }
+
+WHUSDCE = { local = "../_vendor/whUSDCe" }
+WHUSDTE = { local = "../_vendor/whUSDTe" }
+usdc = { local = "../_vendor/USDC/usdc" }
+SuiUsdt = { local = "../_vendor/SuiUsdt" }
+USDY = { local = "../_vendor/USDY" }
+DEEP = { local = "../_vendor/DEEP" }
+
 # Sui = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/sui-framework", rev = "framework/testnet" }
 # Sui = { local = "../../../../movecodes/sui/crates/sui-framework/packages/sui-framework" }
 # For remote import, use the `{ git = "...", subdir = "...", rev = "..." }`.

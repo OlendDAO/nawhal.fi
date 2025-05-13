@@ -397,6 +397,7 @@ public fun register_vault_by_admin_cap<T, YT>(
 
 /// Unregister an asset vault from the LiquidityLayer
 /// TODO:
+#[allow(unused_type_parameter)]
 public fun unregister_vault<T, YT>(
     _self: &mut LiquidityLayer, 
     _admin_cap: &AdminCap, 
@@ -411,7 +412,7 @@ public fun unregister_vault<T, YT>(
 
     // // TODO: Check if the vault doesn't have any balances
     // self.remove_vault(vault_id);
-    
+
     abort 0
 }
 

@@ -5,6 +5,7 @@ module narval::vault;
 
 
 use std::u64;
+
 use sui::balance::{Self, Balance};
 use sui::clock::Clock;
 use sui::coin::{Self, TreasuryCap};
