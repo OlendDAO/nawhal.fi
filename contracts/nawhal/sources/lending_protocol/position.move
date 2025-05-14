@@ -6,14 +6,15 @@ use std::type_name::{Self, TypeName};
 use sui::balance::Balance;
 use sui::vec_map::VecMap;
 
+use narval::common::{YieldToken};
 // ------- Structs ------- //
 /// The staking info of a vault
-public struct StakingInfo<phantom T, phantom YT> has store {
+public struct StakingInfo<phantom T> has store {
     lending_protocol_id: ID,
     account_id: ID,
     asset_type: TypeName,
     /// The shares after staked 
-    shares: Balance<YT>,
+    shares: Balance<YieldToken<T>>,
     /// The total amount of the staking `T
     total_asset_amount: u64,
     latest_updated_ms: u64,
@@ -114,13 +115,13 @@ public struct Tick has store, copy, drop {
 
 // ------- Constructors ------- //
 /// New a new StakingInfo
-public fun new_staking_info<T, YT>(
+public fun new_staking_info<T>(
     lending_protocol_id: ID,
     account_id: ID,
     total_asset_amount: u64,
-    shares: Balance<YT>,
+    shares: Balance<YieldToken<T>>,
     latest_updated_ms: u64,
-): StakingInfo<T, YT> {
+): StakingInfo<T> {
     StakingInfo {
         lending_protocol_id,
         account_id,
@@ -247,31 +248,31 @@ public fun new_tick(
 
 // ------- Setters ------- //
 /// Take shares from the staking info
-public(package) fun take_shares<T, YT>(self: &mut StakingInfo<T, YT>, amount: u64, timestamp_ms: u64): Balance<YT> {
+public(package) fun take_shares<T>(self: &mut StakingInfo<T>, amount: u64, timestamp_ms: u64): Balance<YieldToken<T>> {
     self.sub_asset_amount(amount);
     self.update_latest_updated_ms(timestamp_ms);
     self.shares.split(amount)
 }
 
 /// Add shares to the staking info
-public(package) fun add_shares<T, YT>(self: &mut StakingInfo<T, YT>, shares: Balance<YT>, timestamp_ms: u64) {
+public(package) fun add_shares<T>(self: &mut StakingInfo<T>, shares: Balance<YieldToken<T>>, timestamp_ms: u64) {
     self.add_asset_amount(shares.value());  
     self.update_latest_updated_ms(timestamp_ms);
     self.shares.join(shares);
 }
 
 /// Add asset amount to the staking info
-fun add_asset_amount<T, YT>(self: &mut StakingInfo<T, YT>, amount: u64) {
+fun add_asset_amount<T>(self: &mut StakingInfo<T>, amount: u64) {
     self.total_asset_amount = self.total_asset_amount + amount;
 }
 
 /// Subtract asset amount from the staking info
- fun sub_asset_amount<T, YT>(self: &mut StakingInfo<T, YT>, amount: u64) {
+ fun sub_asset_amount<T>(self: &mut StakingInfo<T>, amount: u64) {
     self.total_asset_amount = self.total_asset_amount - amount;
 }
 
 /// Update the latest updated ms
-public(package) fun update_latest_updated_ms<T, YT>(self: &mut StakingInfo<T, YT>, latest_updated_ms: u64) {
+public(package) fun update_latest_updated_ms<T>(self: &mut StakingInfo<T>, latest_updated_ms: u64) {
     self.latest_updated_ms = latest_updated_ms;
 }
 
@@ -284,17 +285,17 @@ public(package) fun add_debt<T, DT>(self: &mut Position<T, DT>, debt_amount: u64
 
 // ------- Getters ------- //
 /// Get staking total amount
-public fun total_asset_amount<T, YT>(self: &StakingInfo<T, YT>): u64 {
+public fun total_asset_amount<T>(self: &StakingInfo<T>): u64 {
     self.total_asset_amount
 }
 
 /// Get shares value
-public fun shares_value<T, YT>(self: &StakingInfo<T, YT>): u64 {
+public fun shares_value<T>(self: &StakingInfo<T>): u64 {
     self.shares.value()
 }
 
 /// Get staking type
-public fun staking_asset_type<T, YT>(self: &StakingInfo<T, YT>): TypeName {
+public fun staking_asset_type<T>(self: &StakingInfo<T>): TypeName {
     self.asset_type
 }
 

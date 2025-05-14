@@ -5,7 +5,7 @@ use std::ascii::String;
 
 // use sui::balance::Balance;
 use sui::clock::{Self, Clock};
-use sui::coin::TreasuryCap;
+
 use sui::test_scenario::{Self as ts, Scenario};
 
 use narval::account_ds::{Self, AccountRegistry};
@@ -116,27 +116,12 @@ public fun init_account_registry_for_testing(sc: &mut Scenario, sender: address)
 }
 
 // Register an asset vault in LiquidityLayer for testing
-public fun register_asset_vault_for_testing<T, YT>(sc: &mut Scenario, sender: address) {
+public fun register_asset_vault_for_testing<T>(sc: &mut Scenario, sender: address) {
     sc.next_tx(sender);
     let mut layer = sc.take_shared<LiquidityLayer>();
     let admin_cap = sc.take_from_sender<AdminCap>();
-    let lp_treasury = sc.take_from_sender<TreasuryCap<YT>>();
-    let vault_cap = liquidity::register_vault_by_admin_cap<T, YT>(&mut layer, &admin_cap, lp_treasury, sc.ctx());
+    let vault_cap = liquidity::register_vault_by_admin_cap<T>(&mut layer, &admin_cap, sc.ctx());
     ts::return_shared(layer);
     sc.return_to_sender(admin_cap);
     transfer::public_transfer(vault_cap, sender);
 }
-
-// // get shares for testing
-// public fun get_shares_for_testing<T, YT>(sc: &mut Scenario, amount: u64, sender: address, lending_protocol_id: ID): Balance<YT> {
-//     sc.next_tx(sender);
-
-//     // let mut layer = sc.take_shared<LiquidityLayer>();
-//     let lending_protocol = sc.take_shared_by_id<LendingProtocol<T, YT>>(lending_protocol_id);
-//     let profile_cap = sc.take_from_sender<AccountProfileCap>();
-//     let account_id = profile_cap.account_of();
-
-//     let shares = lending_protocol.get_staking_shares<T, YT>(account_id, amount);
-//     sc.return_to_sender(profile_cap);
-//     shares
-// }

@@ -5,6 +5,14 @@ use std::u64;
 
 /* ================= Structs ================= */
 
+// YieldToken witness.
+public struct YieldToken<phantom T> has drop {}
+
+/// New a yield token
+public fun new_yield_token<T>(): YieldToken<T> {
+    YieldToken {}
+}
+
 /// An item in the `PoolRegistry` table. Represents a pool's currency pair.
 public struct PoolPairItem has copy, drop, store {
     a: TypeName,

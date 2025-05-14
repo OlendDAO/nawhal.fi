@@ -4,7 +4,6 @@ use std::type_name::{Self,TypeName};
 
 use sui::balance::{Self,Balance};
 use sui::clock::{Clock};
-use sui::coin::TreasuryCap;
 use sui::object_bag::{Self, ObjectBag};
 use sui::table::{Self, Table};
 use sui::vec_map::{Self, VecMap};
@@ -15,6 +14,7 @@ use narval::common::{Self, PoolPairItem};
 use narval::layer_event;
 use narval::vault::{Self, Vault};
 use narval::protocol::{Self, ProtocolConfig, ProtocolType};
+use narval::common::YieldToken;
 
 /* ================= Errors ================= */
 const EInvalidLiquidityStatus: u64 = 0;
@@ -35,8 +35,8 @@ public struct LiquidityLayer has key {
     // Stores (Vault id, Vault)
     vault_registry: ObjectBag,
 
-    // Stores (VaultItem, Vault id)
-    asset_types: VecMap<VaultItem, ID>,
+    // Stores (AssetType, Vault id)
+    asset_types: VecMap<TypeName, ID>,
 
     // Store Protocol registry
     protocol_registry: VecMap<ID, ProtocolConfig>,
@@ -105,11 +105,10 @@ public fun status(self: &LiquidityLayer): Status {
 }
 
 /// Get the LiquidityVault id of the given asset type
-public fun vault_id_of_asset<T, YT>(self: &LiquidityLayer): ID {
+public fun vault_id_of_asset<T>(self: &LiquidityLayer): ID {
     let pt = type_name::get<T>();
-    let yt = type_name::get<YT>();
 
-    *self.asset_types.get(&new_vault_item(pt, yt))
+    *self.asset_types.get(&pt)
 }
 
 /// Get the protocol amount
@@ -118,21 +117,21 @@ public fun get_protocol_amount(self: &LiquidityLayer, protocol_id: &ID): u64 {
 }
 
 /// Get the asset balance of the given asset type.
-public fun vault_available_balance<T, YT>(self: &LiquidityLayer): u64 {
-    let vault = self.borrow_vault<T, YT>();
+public fun vault_available_balance<T>(self: &LiquidityLayer): u64 {
+    let vault = self.borrow_vault<T>();
     vault.available_balance()
 }
 
 /// Borrow the asset balance of the given asset type.
-public fun borrow_vault<T, YT>(self: &LiquidityLayer): &Vault<T, YT> {
-    let vault_id = self.vault_id_of_asset<T, YT>();
-    self.vault_registry.borrow<ID, Vault<T, YT>>(vault_id)
+public fun borrow_vault<T>(self: &LiquidityLayer): &Vault<T> {
+    let vault_id = self.vault_id_of_asset<T>();
+    self.vault_registry.borrow<ID, Vault<T>>(vault_id)
 }
 
 /// Borrow mut the vault of the given asset type.
-public(package) fun borrow_vault_mut<T, YT>(self: &mut LiquidityLayer): &mut Vault<T, YT> {
-    let vault_id = self.vault_id_of_asset<T, YT>();
-    self.vault_registry.borrow_mut<ID, Vault<T, YT>>(vault_id)
+public(package) fun borrow_vault_mut<T>(self: &mut LiquidityLayer): &mut Vault<T> {
+    let vault_id = self.vault_id_of_asset<T>();
+    self.vault_registry.borrow_mut<ID, Vault<T>>(vault_id)
 }
 
 /// Borrow mut the protocol config of the given protocol id.
@@ -140,8 +139,8 @@ public(package) fun get_protocol_mut(self: &mut LiquidityLayer, protocol_id: &ID
     self.protocol_registry.get_mut(protocol_id)
 }
 /// Contains the given asset type in the liquidity layer or not.
-public fun contains_asset_type(self: &LiquidityLayer, pt: TypeName, yt: TypeName): bool {
-    self.asset_types.contains(&new_vault_item(pt, yt))
+public fun contains_asset_type(self: &LiquidityLayer, pt: TypeName): bool {
+    self.asset_types.contains(&pt)
 }
 
 /// Contains the given protocol in the liquidity layer or not.
@@ -160,19 +159,19 @@ public(package) fun share_object(self: LiquidityLayer) {
 }
 
 /// Add an asset type to the liquidity layer
-fun add_vault_asset_type(self: &mut LiquidityLayer, pt: TypeName, yt: TypeName, vault_id: ID) {
-    self.asset_types.insert(new_vault_item(pt, yt), vault_id);
+fun add_vault_asset_type(self: &mut LiquidityLayer, pt: TypeName, vault_id: ID) {
+    self.asset_types.insert(pt, vault_id);
 }
 
 /// Add a `Vault` to the liquidity layer
-public(package) fun add_vault<T, YT>(self: &mut LiquidityLayer, vault_id: ID, vault: Vault<T, YT>) {
+public(package) fun add_vault<T>(self: &mut LiquidityLayer, vault_id: ID, vault: Vault<T>) {
     self.vault_registry.add(vault_id, vault);
-    self.add_vault_asset_type(type_name::get<T>(), type_name::get<YT>(), vault_id);
+    self.add_vault_asset_type(type_name::get<T>(), vault_id);
 }
 
 /// Remove a `Vault` from the liquidity layer
-public(package) fun remove_vault<T, YT>(self: &mut LiquidityLayer, vault_id: ID): Vault<T, YT> {
-    self.asset_types.remove(&new_vault_item(type_name::get<T>(), type_name::get<YT>()));
+public(package) fun remove_vault<T>(self: &mut LiquidityLayer, vault_id: ID): Vault<T> {
+    self.asset_types.remove(&type_name::get<T>());
     self.vault_registry.remove(vault_id)
 }
 
@@ -239,19 +238,18 @@ public(package) fun decrement_protocol_amount(self: &mut LiquidityLayer, protoco
 }
 
 /// Add asset to vault balance
-public(package) fun add_asset_to_vault_balance<T, YT>(self: &mut LiquidityLayer, payload: Balance<T>, clock: &Clock): Balance<YT> {
+public(package) fun add_asset_to_vault_balance<T>(self: &mut LiquidityLayer, payload: Balance<T>, clock: &Clock): Balance<YieldToken<T>> {
     let pt = type_name::get<T>();
-    let yt = type_name::get<YT>();
-    let vault_id = self.asset_types.get(&new_vault_item(pt, yt));
-    let vault = self.vault_registry.borrow_mut<ID, Vault<T, YT>>(*vault_id);
+    let vault_id = self.asset_types.get(&pt);
+    let vault = self.vault_registry.borrow_mut<ID, Vault<T>>(*vault_id);
     
     vault.deposit(payload, clock)
 }
 
 /// Withdraw from LiquidityVault
-public(package) fun withdraw_from_vault<T, YT>(self: &mut LiquidityLayer, shares: Balance<YT>, clock: &Clock): Balance<T> {
-    let vault_id = self.asset_types.get(&new_vault_item(type_name::get<T>(), type_name::get<YT>()));
-    let vault = self.vault_registry.borrow_mut<ID, Vault<T, YT>>(*vault_id);
+public(package) fun withdraw_from_vault<T>(self: &mut LiquidityLayer, shares: Balance<YieldToken<T>>, clock: &Clock): Balance<T> {
+    let vault_id = self.asset_types.get(&type_name::get<T>());
+    let vault = self.vault_registry.borrow_mut<ID, Vault<T>>(*vault_id);
 
     let tick = vault.withdraw(shares, clock);
 
@@ -284,14 +282,14 @@ public fun check_liquidity_layer_is_active(self: &LiquidityLayer) {
 
 /// Checks if an asset type is already registered in the liquidity layer.
 /// Aborts with `EAssetTypeNotFound` if the asset type is found in the `asset_types` set.
-public fun check_asset_type_exists(self: &LiquidityLayer, pt: TypeName, yt: TypeName) {
-    assert!(self.contains_asset_type(pt, yt), EAssetTypeNotFound);
+public fun check_asset_type_exists(self: &LiquidityLayer, pt: TypeName) {
+    assert!(self.contains_asset_type(pt), EAssetTypeNotFound);
 }
 
 /// Checks if an asset type is not registered in the liquidity layer.
 /// Aborts with `EAssetTypeNotFound` if the asset type is not found in the `asset_types` set.
-public fun check_asset_type_not_exists(self: &LiquidityLayer, pt: TypeName, yt: TypeName) {
-    assert!(!self.contains_asset_type(pt, yt), EAssetTypeAlreadyExisted);
+public fun check_asset_type_not_exists(self: &LiquidityLayer, pt: TypeName) {
+    assert!(!self.contains_asset_type(pt), EAssetTypeAlreadyExisted);
 }
 
 /// Checks if a protocol is already registered in the liquidity layer.
@@ -308,9 +306,9 @@ public fun check_protocol_not_exists(self: &LiquidityLayer, protocol_id: &ID) {
 
 /// Checks if the protocol asset type match the asset type.
 /// Aborts with `EProtocolAssetTypeMismatch` if the protocol asset type does not match the asset type.
-public fun check_protocol_asset_type_match(self: &LiquidityLayer, protocol_id: &ID, pt: &TypeName, yt: &TypeName) {
+public fun check_protocol_asset_type_match(self: &LiquidityLayer, protocol_id: &ID, pt: &TypeName) {
     let protocol_config = self.protocol_registry.get(protocol_id);
-    assert!(protocol_config.pt() == pt && protocol_config.yt() == yt, EProtocolAssetTypeMismatch);
+    assert!(protocol_config.pt() == pt, EProtocolAssetTypeMismatch);
 }
 
 // ------- Initialize function ------- //
@@ -332,21 +330,20 @@ fun init(ctx: &mut TxContext) {
 /* ================= Logic functions ================= */
 /// The Protocol deposits the assets to the LiquidityLayer.
 /// And update the protocol amount with protocol_id.
-public fun deposit<T, YT>(self: &mut LiquidityLayer, protocol_id: ID, payload: Balance<T>, clock: &Clock, ctx: &mut TxContext): Balance<YT> {
+public fun deposit<T>(self: &mut LiquidityLayer, protocol_id: ID, payload: Balance<T>, clock: &Clock, ctx: &mut TxContext): Balance<YieldToken<T>> {
     if (payload.value() == 0) {
         payload.destroy_zero();
         balance::zero()
     } else {
         let pt = type_name::get<T>();
-        let yt = type_name::get<YT>();
 
         self.check_protocol_exists(&protocol_id);
-        self.check_protocol_asset_type_match(&protocol_id, &pt, &yt);
+        self.check_protocol_asset_type_match(&protocol_id, &pt);
 
         let deposit_value = payload.value();
         self.increment_protocol_amount(protocol_id, deposit_value);
 
-        let shares = self.add_asset_to_vault_balance<T, YT>(payload, clock);
+        let shares = self.add_asset_to_vault_balance<T>(payload, clock);
 
         // Emit protocol deposited event
         layer_event::emit_protocol_deposited_event(self.layer_id(), protocol_id, deposit_value, clock.timestamp_ms(), ctx.epoch());
@@ -358,17 +355,16 @@ public fun deposit<T, YT>(self: &mut LiquidityLayer, protocol_id: ID, payload: B
 /// The Protocol withdraws the assets from the LiquidityLayer.
 /// And update the protocol amount with protocol_id.
 /// Ignore the amount if the protocol amount is less than the amount.
-public fun withdraw<T, YT>(self: &mut LiquidityLayer, protocol_id: ID, shares: Balance<YT>, clock: &Clock, ctx: &mut TxContext): Balance<T> {
+public fun withdraw<T>(self: &mut LiquidityLayer, protocol_id: ID, shares: Balance<YieldToken<T>>, clock: &Clock, ctx: &mut TxContext): Balance<T> {
     if (shares.value() == 0) {
         shares.destroy_zero();
         return balance::zero<T>()
     };
 
     let pt = type_name::get<T>();
-    let yt = type_name::get<YT>();
 
     self.check_protocol_exists(&protocol_id);
-    self.check_protocol_asset_type_match(&protocol_id, &pt, &yt);
+    self.check_protocol_asset_type_match(&protocol_id, &pt);
 
     // Initial check based on shares value might be inaccurate, 
     // but necessary if layer withdraw requires shares
@@ -379,7 +375,7 @@ public fun withdraw<T, YT>(self: &mut LiquidityLayer, protocol_id: ID, shares: B
     // let shares_value_for_event = shares.value(); // Keep for event
 
     // Withdraw from vault using shares
-    let withdrawn_balance_t = self.withdraw_from_vault<T, YT>(shares, clock);
+    let withdrawn_balance_t = self.withdraw_from_vault<T>(shares, clock);
     let withdrawn_value = withdrawn_balance_t.value(); // Get the actual withdrawn asset value
 
     // Decrement the protocol amount using the ACTUAL withdrawn asset value
@@ -403,18 +399,16 @@ public fun withdraw<T, YT>(self: &mut LiquidityLayer, protocol_id: ID, shares: B
 /// 
 /// # Ignores
 /// * If the asset type is already registered.
-fun register_asset_vault<T, YT>(
+fun register_asset_vault<T>(
     self: &mut LiquidityLayer, 
-    lp_treasury: TreasuryCap<YT>, 
     ctx: &mut TxContext
-): VaultCap<T, YT> {
+): VaultCap<T> {
     let pt = type_name::get<T>();
-    let yt = type_name::get<YT>();
 
     check_liquidity_layer_is_active(self);
-    check_asset_type_not_exists(self, pt, yt);
+    check_asset_type_not_exists(self, pt);
 
-    let (vault, vault_cap) = vault::new<T, YT>(lp_treasury, ctx);
+    let (vault, vault_cap) = vault::new<T>(ctx);
             
     let vault_id = vault.id();
 
@@ -427,19 +421,18 @@ fun register_asset_vault<T, YT>(
 }
 
 /// Register a new asset vault to the LiquidityLayer by AdminCap
-public fun register_vault_by_admin_cap<T, YT>(
+public fun register_vault_by_admin_cap<T>(
     self: &mut LiquidityLayer, 
     _admin_cap: &AdminCap, 
-    lp_treasury: TreasuryCap<YT>, 
     ctx: &mut TxContext
-): VaultCap<T, YT> {
-    register_asset_vault<T, YT>(self, lp_treasury, ctx)
+): VaultCap<T> {
+    register_asset_vault<T>(self, ctx)
 }
 
 /// Unregister an asset vault from the LiquidityLayer
 /// TODO:
 #[allow(unused_type_parameter)]
-public fun unregister_vault<T, YT>(
+public fun unregister_vault<T>(
     _self: &mut LiquidityLayer, 
     _admin_cap: &AdminCap, 
     _vault_id: ID, 
@@ -459,17 +452,16 @@ public fun unregister_vault<T, YT>(
 
 /// Register a new protocol to the LiquidityLayer
 /// Pause the liquidity layer
-public fun register_protocol<T, YT>(self: &mut LiquidityLayer, _admin_cap: &AdminCap, protocol_id: ID, protocol_type: ProtocolType, ctx: &mut TxContext) {
+public fun register_protocol<T>(self: &mut LiquidityLayer, _admin_cap: &AdminCap, protocol_id: ID, protocol_type: ProtocolType, ctx: &mut TxContext) {
     let pt = type_name::get<T>();
-    let yt = type_name::get<YT>();
 
     self.check_liquidity_layer_is_active();
-    self.check_asset_type_exists(pt, yt);
+    self.check_asset_type_exists(pt);
     self.check_protocol_not_exists(&protocol_id);
     
     self.add_protocol(
         protocol_id, 
-        protocol::new_protocol_config(protocol_id, pt, yt, 0, protocol_type)
+        protocol::new_protocol_config(protocol_id, pt, 0, protocol_type)
     );
 
     // Emit protocol registered event

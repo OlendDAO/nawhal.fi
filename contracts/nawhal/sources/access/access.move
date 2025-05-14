@@ -43,12 +43,12 @@ const EActionMismatch: u64 = 10;
 /// There can only ever be one `VaultCap` for a `Vault`
 /// `T` is the type of the asset in the vault
 /// `YT` is the type of the yield token in the vault
-public struct VaultCap<phantom T, phantom YT> has key, store {
+public struct VaultCap<phantom T> has key, store {
     id: UID,
 }
 
 /// Create a new `VaultCap`
-public(package) fun new_vault_cap<T, YT>(ctx: &mut TxContext): VaultCap<T, YT> {
+public(package) fun new_vault_cap<T>(ctx: &mut TxContext): VaultCap<T> {
     VaultCap {
         id: object::new(ctx),
     }

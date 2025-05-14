@@ -3,7 +3,7 @@
 
 module narval::dex;
 
-use std::type_name::{Self, TypeName};
+// use std::type_name::{Self, TypeName};
 use std::u128;
 use sui::balance::{Self, Balance, Supply, create_supply};
 use sui::event;
