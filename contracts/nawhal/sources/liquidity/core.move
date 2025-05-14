@@ -6,10 +6,12 @@ use sui::balance::{Self,Balance};
 use sui::clock::{Clock};
 use sui::coin::TreasuryCap;
 use sui::object_bag::{Self, ObjectBag};
+use sui::table::{Self, Table};
 use sui::vec_map::{Self, VecMap};
 
 use narval::access::VaultCap;
 use narval::admin::{Self, AdminCap};
+use narval::common::{Self, PoolPairItem};
 use narval::layer_event;
 use narval::vault::{Self, Vault};
 use narval::protocol::{Self, ProtocolConfig, ProtocolType};
@@ -20,8 +22,11 @@ const EAssetTypeAlreadyExisted: u64 = 1;
 const EProtocolNotFound: u64 = 2;
 const EProtocolAlreadyExisted: u64 = 3;
 const EProtocolAssetTypeMismatch: u64 = 4;
-// const EProtocolInsufficientBalance: u64 = 5;
-const EAssetTypeNotFound: u64 = 6;
+const EPoolAlreadyExists: u64 = 5;
+const EInvalidPair: u64 = 6;
+// const EProtocolInsufficientBalance: u64 = 6;
+
+const EAssetTypeNotFound: u64 = 7;
 /* ================= Structs ================= */
 
 /// `LiquidityLayer` struct holding the global liquidity of the protocol, and registering the assets types and its vaults.
@@ -35,6 +40,9 @@ public struct LiquidityLayer has key {
 
     // Store Protocol registry
     protocol_registry: VecMap<ID, ProtocolConfig>,
+
+    // Stores DEX registry
+    dex_registry: Table<PoolPairItem, bool>,
 
     // Status
     status: Status,
@@ -60,6 +68,7 @@ public fun new_liquidity_layer(ctx: &mut TxContext): LiquidityLayer {
         vault_registry: object_bag::new(ctx),
         asset_types: vec_map::empty(),
         protocol_registry: vec_map::empty(),
+        dex_registry: table::new(ctx),
         status: new_active_status(),
     }
 }
@@ -140,6 +149,11 @@ public fun contains_protocol(self: &LiquidityLayer, protocol_id: &ID): bool {
     self.protocol_registry.contains(protocol_id)
 }
 
+/// Contains the given dex in the liquidity layer or not.
+public fun contains_dex(self: &LiquidityLayer, item: PoolPairItem): bool {
+    self.dex_registry.contains(item)
+}
+
 /// Share the `LiquidityLayer`
 public(package) fun share_object(self: LiquidityLayer) {
     transfer::share_object(self);
@@ -167,9 +181,36 @@ public(package) fun add_protocol(self: &mut LiquidityLayer, protocol_id: ID, pro
     self.protocol_registry.insert(protocol_id, protocol_config);
 }
 
+/// Add a new coin type tuple (`A`, `B`) to the registry. Types must be sorted alphabetically (ASCII ordered)
+/// such that `A` < `B`. They also cannot be equal.
+/// Aborts when coin types are the same.
+/// Aborts when coin types are not in order (type `A` must come before `B` alphabetically).
+/// Aborts when coin type tuple is already in the registry.
+public(package) fun registry_dex<A, B>(self: &mut LiquidityLayer) {
+    let a = type_name::get<A>();
+    let b = type_name::get<B>();
+    assert!(common::cmp_type_names(&a, &b) == 0, EInvalidPair);
+
+    let item = common::new_pool_pair_item(a, b);
+
+    assert!(!self.contains_dex(item), EPoolAlreadyExists);
+
+    self.add_dex(item)
+}
+
+/// Add a dex to the liquidity layer
+fun add_dex(self: &mut LiquidityLayer, item: PoolPairItem) {
+    self.dex_registry.add(item, true);
+}
+
 /// Remove a protocol from the liquidity layer
 public(package) fun remove_protocol(self: &mut LiquidityLayer, protocol_id: ID) {
     self.protocol_registry.remove(&protocol_id);
+}
+
+/// Remove dex from the liquidity layer
+public(package) fun remove_dex<A, B>(self: &mut LiquidityLayer) {
+    self.dex_registry.remove(common::new_pool_pair_item(type_name::get<A>(), type_name::get<B>()));
 }
 
 /// Increment the protocol amount
@@ -461,11 +502,13 @@ public fun destroy_liquidity_layer_for_testing(layer: LiquidityLayer) {
         vault_registry,
         asset_types: _,
         protocol_registry: _,
+        dex_registry,
         status: _,
     } = layer;
 
     id.delete();
     vault_registry.destroy_empty();
+    dex_registry.destroy_empty();
 }
 
 // ------- Unit tests ------- //

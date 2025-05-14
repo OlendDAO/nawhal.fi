@@ -15,5 +15,3 @@ public(package) fun create_admin_cap_and_transfer(ctx: &mut TxContext) {
 
     transfer::transfer<AdminCap>(cap, tx_context::sender(ctx));
 }
-
-	 

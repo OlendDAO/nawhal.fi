@@ -1,4 +1,4 @@
-// Copyright (c) Kuna Labs d.o.o.
+// Copyright (c) Olend Labs.
 // SPDX-License-Identifier: Apache-2.0
 
 module narval::piecewise;

@@ -79,7 +79,7 @@ public fun deposit<T, YT>(
 /// Withdraw assets from the protocol
 public fun withdraw<T, YT>(
     self: &mut LendingProtocol<T, YT>, 
-    layer: &mut LiquidityLayer, 
+    liquidity_layer: &mut LiquidityLayer, 
     registry: &mut AccountRegistry, 
     cap: &AccountProfileCap,
     amount: u64, // Value amount requested by user
@@ -114,7 +114,7 @@ public fun withdraw<T, YT>(
     let shares_to_withdraw_balance = self.take_staking_shares<T, YT>(account_id, shares_amount_to_take, now); 
 
     // 4. Withdraw from Liquidity Layer using the taken shares
-    let withdrawn_balance_t = liquidity::withdraw<T, YT>(layer, protocol_id, shares_to_withdraw_balance, clock, ctx);
+    let withdrawn_balance_t = liquidity::withdraw<T, YT>(liquidity_layer, protocol_id, shares_to_withdraw_balance, clock, ctx);
     
     // 5. Return the actual withdrawn Balance<T>
     withdrawn_balance_t

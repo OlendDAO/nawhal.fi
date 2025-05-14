@@ -3,6 +3,8 @@
 
 module narval::util;
 
+use std::u128;
+
 use sui::clock::{Self, Clock};
 
 /// Get current clock timestamp in seconds.
@@ -42,6 +44,27 @@ public fun muldiv_round_up_u128(a: u128, b: u128, c: u128): u128 {
         c as u256,
     ) as u128
 }
+
+// /// Calculates (a * b) / c. Errors if result doesn't fit into u64.
+// fun muldiv(a: u64, b: u64, c: u64): u64 {
+//     (((a as u128) * (b as u128)) / (c as u128)) as u64
+// }
+
+/// Calculates ceil_div((a * b), c). Errors if result doesn't fit into u64.
+public fun ceil_muldiv(a: u64, b: u64, c: u64): u64 {
+    u128::divide_and_round_up((a as u128) * (b as u128), c as u128) as u64
+}
+
+/// Calculates sqrt(a * b).
+public fun mulsqrt(a: u64, b: u64): u64 {
+    u128::sqrt((a as u128) * (b as u128)) as u64
+}
+
+// /// Calculates (a * b) / c for u128. Errors if result doesn't fit into u128.
+// fun muldiv_u128(a: u128, b: u128, c: u128): u128 {
+//     (((a as u256) * (b as u256)) / (c as u256)) as u128
+// }
+
 
 public fun saturating_muldiv_round_up_u128(a: u128, b: u128, c: u128): u128 {
     let res = divide_and_round_up_u256(
