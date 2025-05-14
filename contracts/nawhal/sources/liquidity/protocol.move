@@ -17,7 +17,8 @@ use narval::common::{YieldToken};
 
 public struct ProtocolConfig has copy, drop, store {
     protocol_id: ID,
-    pt: TypeName,
+    // token_a: TypeName,
+    // token_b: TypeName,
     amount: u64,
     protocol_type: ProtocolType,
 }
@@ -54,19 +55,25 @@ public fun new_dex_protocol_type(): ProtocolType {
 }
 
 /// New a new ProtocolConfig
-public fun new_protocol_config(protocol_id: ID, pt: TypeName, amount: u64, protocol_type: ProtocolType): ProtocolConfig {
+public fun new_protocol_config(protocol_id: ID, amount: u64, protocol_type: ProtocolType): ProtocolConfig {
     ProtocolConfig {
         protocol_id,
-        pt,
+        // token_a,
+        // token_b,
         amount,
         protocol_type,
     }
 }
 
-/// Get asset type from protocol config
-public fun pt(self: &ProtocolConfig): &TypeName {
-    &self.pt
-}
+// /// Get asset type from protocol config
+// public fun token_a(self: &ProtocolConfig): &TypeName {
+//     &self.token_a
+// }
+
+// /// Get asset type from protocol config
+// public fun token_b(self: &ProtocolConfig): &TypeName {
+//     &self.token_b
+// }
 
 /// Get amount of protocol config
 public fun amount(self: &ProtocolConfig): u64 {

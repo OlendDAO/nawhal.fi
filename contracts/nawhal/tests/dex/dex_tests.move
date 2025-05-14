@@ -4,11 +4,14 @@
 #[test_only]
 module narval::dex_tests;
 
-use narval::admin::AdminCap;
-use narval::dex::{Self, Pool, LP};
+
 use sui::balance::{Self, Balance};
+use sui::clock::Clock;
 use sui::coin::{Self, Coin};
 use sui::test_scenario::{Self, Scenario};
+
+use narval::admin::AdminCap;
+use narval::dex::{Self, Pool, LP};
 use narval::common_tests;
 use narval::liquidity::{Self, LiquidityLayer};
 
@@ -35,14 +38,17 @@ fun scenario_init(sender: address): Scenario {
     scenario
 }
 
-fun scenario_create_pool(
+fun scenario_create_pool<A, B>(
     scenario: &mut test_scenario::Scenario,
     init_a: u64,
     init_b: u64,
     lp_fee_bps: u64,
     admin_fee_pct: u64,
 ) {
+    scenario.next_tx(ADMIN);
+    
     let mut registry = scenario.take_shared<LiquidityLayer>();
+    let clock = scenario.take_shared<Clock>();
     let ctx = scenario.ctx();
 
     let init_a = balance::create_for_testing<A>(init_a);
@@ -54,12 +60,14 @@ fun scenario_create_pool(
         init_b,
         lp_fee_bps,
         admin_fee_pct,
+        &clock,
         ctx,
     );
 
     transfer::public_transfer(lp.into_coin(ctx), ctx.sender());
 
     test_scenario::return_shared(registry);
+    test_scenario::return_shared(clock);
 }
 
 fun assert_and_destroy_balance<T>(balance: Balance<T>, value: u64) {
@@ -126,17 +134,26 @@ fun test_pool_registry_add_aborts_when_already_exists() {
 fun test_create_pool_fails_on_init_a_zero() {
     let mut scenario_val = scenario_init(ADMIN);
     let scenario = &mut scenario_val;
+
+    common_tests::create_clock_and_share(scenario);
+    common_tests::init_liquidity_layer_for_testing(scenario, ADMIN);
+
+    common_tests::register_asset_vault_for_testing<A>(scenario, ADMIN);
+    common_tests::register_asset_vault_for_testing<B>(scenario, ADMIN);
+
     {
         let mut liquidity_layer = scenario.take_shared<LiquidityLayer>();
+        let clock = scenario.take_shared<Clock>();
         let ctx = scenario.ctx();
 
         let init_a = balance::zero<A>();
         let init_b = balance::create_for_testing<B>(100);
 
-        let lp = dex::create(&mut liquidity_layer, init_a, init_b, 0, 0, ctx);
+        let lp = dex::create(&mut liquidity_layer, init_a, init_b, 0, 0, &clock, ctx);
         transfer::public_transfer(lp.into_coin(ctx), ctx.sender());
 
         test_scenario::return_shared(liquidity_layer);
+        test_scenario::return_shared(clock);
     };
 
     test_scenario::end(scenario_val);
@@ -147,17 +164,26 @@ fun test_create_pool_fails_on_init_a_zero() {
 fun test_create_pool_fails_on_init_b_zero() {
     let mut scenario_val = scenario_init(ADMIN);
     let scenario = &mut scenario_val;
+
+    common_tests::create_clock_and_share(scenario);
+    common_tests::init_liquidity_layer_for_testing(scenario, ADMIN);
+
+    common_tests::register_asset_vault_for_testing<A>(scenario, ADMIN);
+    common_tests::register_asset_vault_for_testing<B>(scenario, ADMIN);
+
     {
         let mut liquidity_layer = scenario.take_shared<LiquidityLayer>();
+        let clock = scenario.take_shared<Clock>();
         let ctx = scenario.ctx();
 
         let init_a = balance::create_for_testing<A>(100);
         let init_b = balance::zero<B>();
 
-        let lp = dex::create(&mut liquidity_layer, init_a, init_b, 0, 0, ctx);
+        let lp = dex::create(&mut liquidity_layer, init_a, init_b, 0, 0, &clock, ctx);
         transfer::public_transfer(lp.into_coin(ctx), ctx.sender());
 
         test_scenario::return_shared(liquidity_layer);
+        test_scenario::return_shared(clock);
     };
 
     test_scenario::end(scenario_val);
@@ -168,17 +194,23 @@ fun test_create_pool_fails_on_init_b_zero() {
 fun test_create_pool_fails_on_invalid_lp_fee() {
     let mut scenario_val = scenario_init(ADMIN);
     let scenario = &mut scenario_val;
+
+    common_tests::create_clock_and_share(scenario);
+    common_tests::init_liquidity_layer_for_testing(scenario, ADMIN);
+
     {
         let mut liquidity_layer = scenario.take_shared<LiquidityLayer>();
+        let clock = scenario.take_shared<Clock>();
         let ctx = scenario.ctx();
 
         let init_a = balance::create_for_testing<A>(100);
         let init_b = balance::create_for_testing<B>(100);
 
-        let lp = dex::create(&mut liquidity_layer, init_a, init_b, 10001, 0, ctx);
+        let lp = dex::create(&mut liquidity_layer, init_a, init_b, 10001, 0, &clock, ctx);
         transfer::public_transfer(lp.into_coin(ctx), ctx.sender());
 
         test_scenario::return_shared(liquidity_layer);
+        test_scenario::return_shared(clock);
     };
 
     test_scenario::end(scenario_val);
@@ -189,8 +221,16 @@ fun test_create_pool_fails_on_invalid_lp_fee() {
 fun test_create_pool_fails_on_invalid_admin_fee() {
     let mut scenario_val = scenario_init(ADMIN);
     let scenario = &mut scenario_val;
+
+    common_tests::create_clock_and_share(scenario);
+    common_tests::init_liquidity_layer_for_testing(scenario, ADMIN);
+
+    common_tests::register_asset_vault_for_testing<A>(scenario, ADMIN);
+    common_tests::register_asset_vault_for_testing<B>(scenario, ADMIN);
+
     {
         let mut liquidity_layer = scenario.take_shared<LiquidityLayer>();
+        let clock = scenario.take_shared<Clock>();
         let ctx = scenario.ctx();
 
         let init_a = balance::create_for_testing<A>(100);
@@ -202,11 +242,13 @@ fun test_create_pool_fails_on_invalid_admin_fee() {
             init_b,
             30,
             101,
+            &clock,
             ctx,
         ); // aborts here
         transfer::public_transfer(lp.into_coin(ctx), ctx.sender());
 
         test_scenario::return_shared(liquidity_layer);
+        test_scenario::return_shared(clock);
     };
 
     test_scenario::end(scenario_val);
@@ -217,8 +259,16 @@ fun test_create_pool_fails_on_invalid_admin_fee() {
 fun test_create_pool_fails_on_duplicate_pair() {
     let mut scenario_val = scenario_init(ADMIN);
     let scenario = &mut scenario_val;
+
+    common_tests::create_clock_and_share(scenario);
+    common_tests::init_liquidity_layer_for_testing(scenario, ADMIN);
+
+    common_tests::register_asset_vault_for_testing<A>(scenario, ADMIN);
+    common_tests::register_asset_vault_for_testing<B>(scenario, ADMIN);
+
     {
         let mut liquidity_layer = scenario.take_shared<LiquidityLayer>();
+        let clock = scenario.take_shared<Clock>();
         let ctx = scenario.ctx();
 
         let init_a = balance::create_for_testing<A>(200);
@@ -230,16 +280,19 @@ fun test_create_pool_fails_on_duplicate_pair() {
             init_b,
             30,
             10,
+            &clock,
             ctx,
         ); // aborts here
         transfer::public_transfer(lp.into_coin(ctx), ctx.sender());
 
         test_scenario::return_shared(liquidity_layer);
+        test_scenario::return_shared(clock);
     };
 
     scenario.next_tx(ADMIN);
     {
         let mut liquidity_layer = scenario.take_shared<LiquidityLayer>();
+        let clock = scenario.take_shared<Clock>();
         let ctx = scenario.ctx();
 
         let init_a = balance::create_for_testing<A>(200);
@@ -251,11 +304,13 @@ fun test_create_pool_fails_on_duplicate_pair() {
             init_b,
             30,
             10,
+            &clock,
             ctx,
         ); // aborts here
         transfer::public_transfer(lp.into_coin(ctx), ctx.sender());
 
         test_scenario::return_shared(liquidity_layer);
+        test_scenario::return_shared(clock);
     };
 
     test_scenario::end(scenario_val);
@@ -266,8 +321,16 @@ fun test_create_pool_fails_on_duplicate_pair() {
 fun test_create_pool_fails_on_same_currency_pair() {
     let mut scenario_val = scenario_init(ADMIN);
     let scenario = &mut scenario_val;
+
+    common_tests::create_clock_and_share(scenario);
+    common_tests::init_liquidity_layer_for_testing(scenario, ADMIN);
+
+    common_tests::register_asset_vault_for_testing<A>(scenario, ADMIN);
+    common_tests::register_asset_vault_for_testing<B>(scenario, ADMIN);
+
     {
         let mut liquidity_layer = scenario.take_shared<LiquidityLayer>();
+        let clock = scenario.take_shared<Clock>();
         let ctx = scenario.ctx();
 
         let init_a = balance::create_for_testing<A>(200);
@@ -279,11 +342,13 @@ fun test_create_pool_fails_on_same_currency_pair() {
             init_b,
             30,
             10,
+            &clock,
             ctx,
         ); // aborts here
         transfer::public_transfer(lp.into_coin(ctx), ctx.sender());
 
         test_scenario::return_shared(liquidity_layer);
+        test_scenario::return_shared(clock);
     };
 
     test_scenario::end(scenario_val);
@@ -294,8 +359,16 @@ fun test_create_pool_fails_on_same_currency_pair() {
 fun test_create_pool_fails_on_currency_pair_wrong_order() {
     let mut scenario_val = scenario_init(ADMIN);
     let scenario = &mut scenario_val;
+
+    common_tests::create_clock_and_share(scenario);
+    common_tests::init_liquidity_layer_for_testing(scenario, ADMIN);
+
+    common_tests::register_asset_vault_for_testing<A>(scenario, ADMIN);
+    common_tests::register_asset_vault_for_testing<B>(scenario, ADMIN);
+
     {
         let mut liquidity_layer = scenario.take_shared<LiquidityLayer>();
+        let clock = scenario.take_shared<Clock>();
         let ctx = scenario.ctx();
 
         let init_a = balance::create_for_testing<B>(200);
@@ -307,11 +380,13 @@ fun test_create_pool_fails_on_currency_pair_wrong_order() {
             init_b,
             30,
             10,
+            &clock,
             ctx,
         ); // aborts here
         transfer::public_transfer(lp.into_coin(ctx), ctx.sender());
 
         test_scenario::return_shared(liquidity_layer);
+        test_scenario::return_shared(clock);
     };
 
     test_scenario::end(scenario_val);
@@ -321,25 +396,27 @@ fun test_create_pool_fails_on_currency_pair_wrong_order() {
 fun test_create_pool() {
     let mut scenario_val = scenario_init(ADMIN);
     let scenario = &mut scenario_val;
-    // {
-    //     let ctx = scenario.ctx();
-    //     dex::init_for_testing(ctx);
-    // };
 
+    common_tests::create_clock_and_share(scenario);
     common_tests::init_liquidity_layer_for_testing(scenario, ADMIN);
+
+    common_tests::register_asset_vault_for_testing<A>(scenario, ADMIN);
+    common_tests::register_asset_vault_for_testing<B>(scenario, ADMIN);
 
     scenario.next_tx(ADMIN);
     {
         let mut liquidity_layer = scenario.take_shared<LiquidityLayer>();
+        let clock = scenario.take_shared<Clock>();
         let ctx = scenario.ctx();
 
         let init_a = balance::create_for_testing<A>(200);
         let init_b = balance::create_for_testing<B>(100);
 
-        let lp = dex::create(&mut liquidity_layer, init_a, init_b, 30, 10, ctx);
+        let lp = dex::create(&mut liquidity_layer, init_a, init_b, 30, 10, &clock, ctx);
         transfer::public_transfer(lp.into_coin(ctx), ctx.sender());
 
         test_scenario::return_shared(liquidity_layer);
+        test_scenario::return_shared(clock);
     };
 
     scenario.next_tx(ADMIN);
@@ -367,15 +444,17 @@ fun test_create_pool() {
     scenario.next_tx(ADMIN);
     {
         let mut liquidity_layer = scenario.take_shared<LiquidityLayer>();
+        let clock = scenario.take_shared<Clock>();
         let ctx = scenario.ctx();
 
         let init_a = balance::create_for_testing<A>(200);
         let init_b = balance::create_for_testing<C>(100);
 
-        let lp = dex::create(&mut liquidity_layer, init_a, init_b, 30, 10, ctx);
+        let lp = dex::create(&mut liquidity_layer, init_a, init_b, 30, 10, &clock, ctx);
         transfer::public_transfer(lp.into_coin(ctx), ctx.sender());
 
         test_scenario::return_shared(liquidity_layer);
+        test_scenario::return_shared(clock);
     };
 
     test_scenario::end(scenario_val);
@@ -387,15 +466,26 @@ fun test_create_pool() {
 fun test_deposit_on_amount_a_zero() {
     let mut scenario_val = scenario_init(ADMIN);
     let scenario = &mut scenario_val;
-    scenario_create_pool(scenario, 100, 100, 30, 10);
+
+    common_tests::create_clock_and_share(scenario);
+    common_tests::init_liquidity_layer_for_testing(scenario, ADMIN);
+
+    common_tests::register_asset_vault_for_testing<A>(scenario, ADMIN);
+    common_tests::register_asset_vault_for_testing<B>(scenario, ADMIN);
+
+    common_tests::register_asset_vault_for_testing<B>(scenario, USER);
+
+    scenario_create_pool<A, B>(scenario, 100, 100, 30, 10);
 
     scenario.next_tx(USER);
     {
         let mut pool = scenario.take_shared<Pool<A, B>>();
-
+        let mut liquidity_layer = scenario.take_shared<LiquidityLayer>();
+        let clock = scenario.take_shared<Clock>();
+        let ctx = scenario.ctx();
         let a = balance::zero<A>();
         let b = balance::create_for_testing<B>(10);
-        let (a, b, lp) = pool.deposit(a, b, 0);
+        let (a, b, lp) = pool.deposit(&mut liquidity_layer, a, b, 0, &clock, ctx);
 
         assert!(a.value() == 0);
         assert!(b.value() == 10);
@@ -406,6 +496,8 @@ fun test_deposit_on_amount_a_zero() {
         lp.destroy_for_testing();
 
         test_scenario::return_shared(pool);
+        test_scenario::return_shared(liquidity_layer);
+        test_scenario::return_shared(clock);
     };
 
     test_scenario::end(scenario_val);
@@ -415,15 +507,26 @@ fun test_deposit_on_amount_a_zero() {
 fun test_deposit_on_amount_b_zero() {
     let mut scenario_val = scenario_init(ADMIN);
     let scenario = &mut scenario_val;
-    scenario_create_pool(scenario, 100, 100, 30, 10);
+
+    common_tests::create_clock_and_share(scenario);
+    common_tests::init_liquidity_layer_for_testing(scenario, ADMIN);
+
+    common_tests::register_asset_vault_for_testing<A>(scenario, ADMIN);
+    common_tests::register_asset_vault_for_testing<B>(scenario, ADMIN);
+
+
+    scenario_create_pool<A, B>(scenario, 100, 100, 30, 10);
 
     scenario.next_tx(USER);
     {
         let mut pool = scenario.take_shared<Pool<A, B>>();
+        let mut liquidity_layer = scenario.take_shared<LiquidityLayer>();
+        let clock = scenario.take_shared<Clock>();
+        let ctx = scenario.ctx();
 
         let a = balance::create_for_testing<A>(10);
         let b = balance::zero<B>();
-        let (a, b, lp) = pool.deposit(a, b, 0);
+        let (a, b, lp) = pool.deposit(&mut liquidity_layer, a, b, 0, &clock, ctx);
 
         assert!(a.value() == 10);
         assert!(b.value() == 0);
@@ -434,6 +537,8 @@ fun test_deposit_on_amount_b_zero() {
         lp.destroy_for_testing();
 
         test_scenario::return_shared(pool);
+        test_scenario::return_shared(liquidity_layer);
+        test_scenario::return_shared(clock);
     };
 
     test_scenario::end(scenario_val);
@@ -443,15 +548,26 @@ fun test_deposit_on_amount_b_zero() {
 fun test_deposit_on_empty_pool() {
     let mut scenario_val = scenario_init(ADMIN);
     let scenario = &mut scenario_val;
-    scenario_create_pool(scenario, 100, 100, 30, 10);
+
+    common_tests::create_clock_and_share(scenario);
+    common_tests::init_liquidity_layer_for_testing(scenario, ADMIN);
+
+    common_tests::register_asset_vault_for_testing<A>(scenario, ADMIN);
+    common_tests::register_asset_vault_for_testing<B>(scenario, ADMIN);
+
+    scenario_create_pool<A, B>(scenario, 100, 100, 30, 10);
 
     // withdraw liquidity to make pool balances 0
     scenario.next_tx(ADMIN);
     {
-        let mut pool = scenario.take_shared<Pool<A, B>>();
-
         let lp_coin = scenario.take_from_sender<Coin<LP<A, B>>>();
-        let (a, b) = pool.withdraw(lp_coin.into_balance(), 0, 0);
+        let mut pool = scenario.take_shared<Pool<A, B>>();
+        let mut liquidity_layer = scenario.take_shared<LiquidityLayer>();
+        let clock = scenario.take_shared<Clock>();
+        let ctx = scenario.ctx();
+
+        
+        let (a, b) = pool.withdraw(&mut liquidity_layer, lp_coin.into_balance(), 0, 0, &clock, ctx);
 
         a.destroy_for_testing();
         b.destroy_for_testing();
@@ -461,16 +577,21 @@ fun test_deposit_on_empty_pool() {
         assert!(a == 0 && b == 0 && lp == 0);
 
         test_scenario::return_shared(pool);
+        test_scenario::return_shared(liquidity_layer);
+        test_scenario::return_shared(clock);
     };
 
     // do the deposit
     scenario.next_tx(USER);
     {
         let mut pool = scenario.take_shared<Pool<A, B>>();
+        let mut liquidity_layer = scenario.take_shared<LiquidityLayer>();
+        let clock = scenario.take_shared<Clock>();
+        let ctx = scenario.ctx();
 
         let a = balance::create_for_testing<A>(200);
         let b = balance::create_for_testing<B>(100);
-        let (a, b, lp) = pool.deposit(a, b, 141);
+        let (a, b, lp) = pool.deposit(&mut liquidity_layer, a, b, 141, &clock, ctx);
 
         // check returned values
         assert!(a.value() == 0);
@@ -489,6 +610,8 @@ fun test_deposit_on_empty_pool() {
 
         // return
         test_scenario::return_shared(pool);
+        test_scenario::return_shared(liquidity_layer);
+        test_scenario::return_shared(clock);
     };
 
     test_scenario::end(scenario_val);
@@ -498,16 +621,26 @@ fun test_deposit_on_empty_pool() {
 fun test_deposit() {
     let mut scenario_val = scenario_init(ADMIN);
     let scenario = &mut scenario_val;
-    scenario_create_pool(scenario, 100, 50, 30, 10);
+
+    common_tests::create_clock_and_share(scenario);
+    common_tests::init_liquidity_layer_for_testing(scenario, ADMIN);
+
+    common_tests::register_asset_vault_for_testing<A>(scenario, ADMIN);
+    common_tests::register_asset_vault_for_testing<B>(scenario, ADMIN);
+
+    scenario_create_pool<A, B>(scenario, 100, 50, 30, 10);
 
     // deposit exact (100, 50, 70); -> (300, 150, 210)
     scenario.next_tx(USER);
     {
         let mut pool = scenario.take_shared<Pool<A, B>>();
+        let mut liquidity_layer = scenario.take_shared<LiquidityLayer>();
+        let clock = scenario.take_shared<Clock>();
+        let ctx = scenario.ctx();
 
         let a = balance::create_for_testing<A>(200);
         let b = balance::create_for_testing<B>(100);
-        let (a, b, lp) = pool.deposit(a, b, 140);
+        let (a, b, lp) = pool.deposit(&mut liquidity_layer, a, b, 140, &clock, ctx);
 
         // check returned values
         assert!(a.value() == 0);
@@ -526,16 +659,21 @@ fun test_deposit() {
 
         // return
         test_scenario::return_shared(pool);
+        test_scenario::return_shared(liquidity_layer);
+        test_scenario::return_shared(clock);
     };
 
     // deposit max B (slippage); (300, 150, 210) -> (400, 200, 280)
     scenario.next_tx(USER);
     {
         let mut pool = scenario.take_shared<Pool<A, B>>();
+        let mut liquidity_layer = scenario.take_shared<LiquidityLayer>();
+        let clock = scenario.take_shared<Clock>();
+        let ctx = scenario.ctx();
 
         let a = balance::create_for_testing<A>(110);
         let b = balance::create_for_testing<B>(50);
-        let (a, b, lp) = pool.deposit(a, b, 70);
+        let (a, b, lp) = pool.deposit(&mut liquidity_layer, a, b, 70, &clock, ctx);
 
         // there's extra balance A
         assert!(a.value() == 10);
@@ -554,16 +692,21 @@ fun test_deposit() {
 
         // return
         test_scenario::return_shared(pool);
+        test_scenario::return_shared(liquidity_layer);
+        test_scenario::return_shared(clock);
     };
 
     // deposit max A (slippage); (400, 200, 280) -> (500, 250, 350)
     scenario.next_tx(USER);
     {
         let mut pool = scenario.take_shared<Pool<A, B>>();
+        let mut liquidity_layer = scenario.take_shared<LiquidityLayer>();
+        let clock = scenario.take_shared<Clock>();
+        let ctx = scenario.ctx();
 
         let a = balance::create_for_testing<A>(100);
         let b = balance::create_for_testing<B>(60);
-        let (a, b, lp) = pool.deposit(a, b, 70);
+        let (a, b, lp) = pool.deposit(&mut liquidity_layer, a, b, 70, &clock, ctx);
 
         // there's extra balance B
         assert!(a.value() == 0);
@@ -582,16 +725,21 @@ fun test_deposit() {
 
         // return
         test_scenario::return_shared(pool);
+        test_scenario::return_shared(liquidity_layer);
+        test_scenario::return_shared(clock);
     };
 
     // no lp issued when input small; (500, 250, 350) -> (501, 251, 350)
     scenario.next_tx(USER);
     {
         let mut pool = scenario.take_shared<Pool<A, B>>();
+        let mut liquidity_layer = scenario.take_shared<LiquidityLayer>();
+        let clock = scenario.take_shared<Clock>();
+        let ctx = scenario.ctx();
 
         let a = balance::create_for_testing<A>(1);
         let b = balance::create_for_testing<B>(1);
-        let (a, b, lp) = pool.deposit(a, b, 0);
+        let (a, b, lp) = pool.deposit(&mut liquidity_layer, a, b, 0, &clock, ctx);
 
         // no lp issued and input balances are fully used up
         assert!(a.value() == 0);
@@ -610,6 +758,8 @@ fun test_deposit() {
 
         // return
         test_scenario::return_shared(pool);
+        test_scenario::return_shared(liquidity_layer);
+        test_scenario::return_shared(clock);
     };
 
     test_scenario::end(scenario_val);
@@ -620,21 +770,33 @@ fun test_deposit() {
 fun test_deposit_fails_on_min_lp_out() {
     let mut scenario_val = scenario_init(ADMIN);
     let scenario = &mut scenario_val;
-    scenario_create_pool(scenario, 100, 100, 30, 10);
+
+    common_tests::create_clock_and_share(scenario);
+    common_tests::init_liquidity_layer_for_testing(scenario, ADMIN);
+
+    common_tests::register_asset_vault_for_testing<A>(scenario, ADMIN);
+    common_tests::register_asset_vault_for_testing<B>(scenario, ADMIN);
+
+    scenario_create_pool<A, B>(scenario, 100, 100, 30, 10);
 
     scenario.next_tx(USER);
     {
         let mut pool = scenario.take_shared<Pool<A, B>>();
+        let mut liquidity_layer = scenario.take_shared<LiquidityLayer>();
+        let clock = scenario.take_shared<Clock>();
+        let ctx = scenario.ctx();
 
         let a = balance::create_for_testing<A>(200);
         let b = balance::create_for_testing<B>(200);
-        let (a, b, lp) = pool.deposit(a, b, 201); // aborts here
+        let (a, b, lp) = pool.deposit(&mut liquidity_layer, a, b, 201, &clock, ctx); // aborts here
 
         a.destroy_for_testing();
         b.destroy_for_testing();
         lp.destroy_for_testing();
 
         test_scenario::return_shared(pool);
+        test_scenario::return_shared(liquidity_layer);
+        test_scenario::return_shared(clock);
     };
 
     test_scenario::end(scenario_val);
@@ -646,19 +808,30 @@ fun test_deposit_fails_on_min_lp_out() {
 fun test_withdraw_returns_zero_on_zero_input() {
     let mut scenario_val = scenario_init(ADMIN);
     let scenario = &mut scenario_val;
-    scenario_create_pool(scenario, 100, 100, 30, 10);
+
+    common_tests::create_clock_and_share(scenario);
+    common_tests::init_liquidity_layer_for_testing(scenario, ADMIN);
+    common_tests::register_asset_vault_for_testing<A>(scenario, ADMIN);
+    common_tests::register_asset_vault_for_testing<B>(scenario, ADMIN);
+
+    scenario_create_pool<A, B>(scenario, 100, 100, 30, 10);
 
     scenario.next_tx(ADMIN);
     {
         let mut pool = scenario.take_shared<Pool<A, B>>();
+        let mut liquidity_layer = scenario.take_shared<LiquidityLayer>();
+        let clock = scenario.take_shared<Clock>();
+        let ctx = scenario.ctx();
 
         let lp = balance::zero();
-        let (a, b) = pool.withdraw(lp, 0, 0); // aborts here
+        let (a, b) = pool.withdraw(&mut liquidity_layer, lp, 0, 0, &clock, ctx); // aborts here
 
         a.destroy_zero();
         b.destroy_zero();
 
         test_scenario::return_shared(pool);
+        test_scenario::return_shared(liquidity_layer);
+        test_scenario::return_shared(clock);
     };
 
     test_scenario::end(scenario_val);
@@ -668,18 +841,28 @@ fun test_withdraw_returns_zero_on_zero_input() {
 fun test_withdraw() {
     let mut scenario_val = scenario_init(ADMIN);
     let scenario = &mut scenario_val;
-    scenario_create_pool(scenario, 100, 13, 30, 10);
+
+    common_tests::create_clock_and_share(scenario);
+    common_tests::init_liquidity_layer_for_testing(scenario, ADMIN);
+
+    common_tests::register_asset_vault_for_testing<A>(scenario, ADMIN);
+    common_tests::register_asset_vault_for_testing<B>(scenario, ADMIN);
+
+    scenario_create_pool<A, B>(scenario, 100, 13, 30, 10);
 
     // withdraw (100, 13, 36) -> (64, 9, 23)
     scenario.next_tx(ADMIN);
     {
-        let mut pool = scenario.take_shared<Pool<A, B>>();
         let mut lp_coin = scenario.take_from_sender<Coin<LP<A, B>>>();
+        let mut pool = scenario.take_shared<Pool<A, B>>();
+        let mut liquidity_layer = scenario.take_shared<LiquidityLayer>();
+        let clock = scenario.take_shared<Clock>();
+        let ctx = scenario.ctx();
+
         assert!(lp_coin.value() == 36); // sanity check
 
-        let ctx = scenario.ctx();
         let lp_in = lp_coin.split(13, ctx).into_balance();
-        let (a, b) = pool.withdraw(lp_in, 36, 4);
+        let (a, b) = pool.withdraw(&mut liquidity_layer, lp_in, 36, 4, &clock, ctx);
 
         // check output balances
         assert!(a.value() == 36);
@@ -696,19 +879,23 @@ fun test_withdraw() {
 
         test_scenario::return_shared(pool);
         test_scenario::return_to_sender(scenario, lp_coin);
+        test_scenario::return_shared(liquidity_layer);
+        test_scenario::return_shared(clock);
     };
 
     // withdraw small amount (64, 9, 23) -> (62, 9, 22)
     scenario.next_tx(ADMIN);
     {
-        let mut pool = scenario.take_shared<Pool<A, B>>();
         let mut lp_coin = scenario.take_from_sender<Coin<LP<A, B>>>();
+        let mut pool = scenario.take_shared<Pool<A, B>>();
+        let mut liquidity_layer = scenario.take_shared<LiquidityLayer>();
+        let clock = scenario.take_shared<Clock>();
+        let ctx = scenario.ctx();
+        
         assert!(lp_coin.value() == 23); // sanity check
 
-        let ctx = scenario.ctx();
-
         let lp_in = lp_coin.split(1, ctx).into_balance();
-        let (a, b) = pool.withdraw(lp_in, 2, 0);
+        let (a, b) = pool.withdraw(&mut liquidity_layer, lp_in, 2, 0, &clock, ctx);
 
         // check output balances
         assert!(a.value() == 2);
@@ -725,16 +912,21 @@ fun test_withdraw() {
 
         test_scenario::return_shared(pool);
         test_scenario::return_to_sender(scenario, lp_coin);
+        test_scenario::return_shared(liquidity_layer);
+        test_scenario::return_shared(clock);
     };
 
     // withdraw all (62, 9, 22) -> (0, 0, 0)
     scenario.next_tx(ADMIN);
     {
-        let mut pool = scenario.take_shared<Pool<A, B>>();
         let lp_coin = scenario.take_from_sender<Coin<LP<A, B>>>();
+        let mut pool = scenario.take_shared<Pool<A, B>>();
+        let mut liquidity_layer = scenario.take_shared<LiquidityLayer>();
+        let clock = scenario.take_shared<Clock>();
+        let ctx = scenario.ctx();
 
         let lp_in = lp_coin.into_balance();
-        let (a, b) = pool.withdraw(lp_in, 62, 9);
+        let (a, b) = pool.withdraw(&mut liquidity_layer, lp_in, 62, 9, &clock, ctx);
 
         // check output balances
         assert!(a.value() == 62);
@@ -750,6 +942,9 @@ fun test_withdraw() {
         assert!(lp == 0);
 
         test_scenario::return_shared(pool);
+        // test_scenario::return_to_sender(scenario, lp_coin);
+        test_scenario::return_shared(liquidity_layer);
+        test_scenario::return_shared(clock);
     };
 
     test_scenario::end(scenario_val);
@@ -760,22 +955,33 @@ fun test_withdraw() {
 fun test_withdraw_fails_on_min_a_out() {
     let mut scenario_val = scenario_init(ADMIN);
     let scenario = &mut scenario_val;
-    scenario_create_pool(scenario, 100, 100, 30, 10);
+
+    common_tests::create_clock_and_share(scenario);
+    common_tests::init_liquidity_layer_for_testing(scenario, ADMIN);
+
+    common_tests::register_asset_vault_for_testing<A>(scenario, ADMIN);
+    common_tests::register_asset_vault_for_testing<B>(scenario, ADMIN);
+
+    scenario_create_pool<A, B>(scenario, 100, 100, 30, 10);
 
     scenario.next_tx(ADMIN);
     {
-        let mut pool = scenario.take_shared<Pool<A, B>>();
         let mut lp_coin = scenario.take_from_sender<Coin<LP<A, B>>>();
+        let mut pool = scenario.take_shared<Pool<A, B>>();
+        let mut liquidity_layer = scenario.take_shared<LiquidityLayer>();
+        let clock = scenario.take_shared<Clock>();
         let ctx = scenario.ctx();
 
         let lp_in = coin::into_balance(lp_coin.split(50, ctx));
-        let (a, b) = pool.withdraw(lp_in, 51, 50); // aborts here
+        let (a, b) = pool.withdraw(&mut liquidity_layer, lp_in, 51, 50, &clock, ctx); // aborts here
 
         a.destroy_for_testing();
         b.destroy_for_testing();
 
         test_scenario::return_shared(pool);
         test_scenario::return_to_sender(scenario, lp_coin);
+        test_scenario::return_shared(liquidity_layer);
+        test_scenario::return_shared(clock);
     };
 
     test_scenario::end(scenario_val);
@@ -786,22 +992,32 @@ fun test_withdraw_fails_on_min_a_out() {
 fun test_withdraw_fails_on_min_b_out() {
     let mut scenario_val = scenario_init(ADMIN);
     let scenario = &mut scenario_val;
-    scenario_create_pool(scenario, 100, 100, 30, 10);
+
+    common_tests::create_clock_and_share(scenario);
+    common_tests::init_liquidity_layer_for_testing(scenario, ADMIN);
+    common_tests::register_asset_vault_for_testing<A>(scenario, ADMIN);
+    common_tests::register_asset_vault_for_testing<B>(scenario, ADMIN);
+
+    scenario_create_pool<A, B>(scenario, 100, 100, 30, 10);
 
     scenario.next_tx(ADMIN);
     {
-        let mut pool = scenario.take_shared<Pool<A, B>>();
         let mut lp_coin = scenario.take_from_sender<Coin<LP<A, B>>>();
+        let mut pool = scenario.take_shared<Pool<A, B>>();
+        let mut liquidity_layer = scenario.take_shared<LiquidityLayer>();
+        let clock = scenario.take_shared<Clock>();
         let ctx = scenario.ctx();
 
         let lp_in = lp_coin.split(50, ctx).into_balance();
-        let (a, b) = pool.withdraw(lp_in, 50, 51); // aborts here
+        let (a, b) = pool.withdraw(&mut liquidity_layer, lp_in, 50, 51, &clock, ctx); // aborts here
 
         a.destroy_for_testing();
         b.destroy_for_testing();
 
         test_scenario::return_shared(pool);
         test_scenario::return_to_sender(scenario, lp_coin);
+        test_scenario::return_shared(liquidity_layer);
+        test_scenario::return_shared(clock);
     };
 
     test_scenario::end(scenario_val);
@@ -813,18 +1029,29 @@ fun test_withdraw_fails_on_min_b_out() {
 fun test_swap_a_returns_zero_on_zero_input_a() {
     let mut scenario_val = scenario_init(ADMIN);
     let scenario = &mut scenario_val;
-    scenario_create_pool(scenario, 100, 100, 30, 10);
+
+    common_tests::create_clock_and_share(scenario);
+    common_tests::init_liquidity_layer_for_testing(scenario, ADMIN);
+    common_tests::register_asset_vault_for_testing<A>(scenario, ADMIN);
+    common_tests::register_asset_vault_for_testing<B>(scenario, ADMIN);
+
+    scenario_create_pool<A, B>(scenario, 100, 100, 30, 10);
 
     scenario.next_tx(ADMIN);
     {
         let mut pool = scenario.take_shared<Pool<A, B>>();
+        let mut liquidity_layer = scenario.take_shared<LiquidityLayer>();
+        let clock = scenario.take_shared<Clock>();
+        let ctx = scenario.ctx();
 
         let a_in = balance::zero<A>();
-        let b_out = pool.swap_a(a_in, 0);
+        let b_out = pool.swap_a(&mut liquidity_layer, a_in, 0, &clock, ctx);
 
         b_out.destroy_zero();
 
         test_scenario::return_shared(pool);
+        test_scenario::return_shared(liquidity_layer);
+        test_scenario::return_shared(clock);
     };
 
     test_scenario::end(scenario_val);
@@ -834,18 +1061,29 @@ fun test_swap_a_returns_zero_on_zero_input_a() {
 fun test_swap_b_returns_zero_on_zero_input_b() {
     let mut scenario_val = scenario_init(ADMIN);
     let scenario = &mut scenario_val;
-    scenario_create_pool(scenario, 100, 100, 30, 10);
+
+    common_tests::create_clock_and_share(scenario);
+    common_tests::init_liquidity_layer_for_testing(scenario, ADMIN);
+    common_tests::register_asset_vault_for_testing<A>(scenario, ADMIN);
+    common_tests::register_asset_vault_for_testing<B>(scenario, ADMIN);
+
+    scenario_create_pool<A, B>(scenario, 100, 100, 30, 10);
 
     scenario.next_tx(ADMIN);
     {
         let mut pool = scenario.take_shared<Pool<A, B>>();
+        let mut liquidity_layer = scenario.take_shared<LiquidityLayer>();
+        let clock = scenario.take_shared<Clock>();
+        let ctx = scenario.ctx();
 
         let b_in = balance::zero<B>();
-        let a_out = pool.swap_b(b_in, 0);
+        let a_out = pool.swap_b(&mut liquidity_layer, b_in, 0, &clock, ctx);
 
         a_out.destroy_zero();
 
         test_scenario::return_shared(pool);
+        test_scenario::return_shared(liquidity_layer);
+        test_scenario::return_shared(clock);
     };
 
     test_scenario::end(scenario_val);
@@ -856,23 +1094,35 @@ fun test_swap_b_returns_zero_on_zero_input_b() {
 fun test_swap_a_fails_on_zero_pool_balances() {
     let mut scenario_val = scenario_init(ADMIN);
     let scenario = &mut scenario_val;
-    scenario_create_pool(scenario, 100, 100, 30, 10);
+
+    common_tests::create_clock_and_share(scenario);
+    common_tests::init_liquidity_layer_for_testing(scenario, ADMIN);
+    common_tests::register_asset_vault_for_testing<A>(scenario, ADMIN);
+    common_tests::register_asset_vault_for_testing<B>(scenario, ADMIN);
+
+    scenario_create_pool<A, B>(scenario, 100, 100, 30, 10);
 
     scenario.next_tx(ADMIN);
     {
-        let mut pool = scenario.take_shared<Pool<A, B>>();
         let lp_coin = scenario.take_from_sender<Coin<LP<A, B>>>();
 
-        let (a, b) = pool.withdraw(lp_coin.into_balance(), 0, 0);
+        let mut pool = scenario.take_shared<Pool<A, B>>();
+        let mut liquidity_layer = scenario.take_shared<LiquidityLayer>();
+        let clock = scenario.take_shared<Clock>();
+        let ctx = scenario.ctx();
+
+        let (a, b) = pool.withdraw(&mut liquidity_layer, lp_coin.into_balance(), 0, 0, &clock, ctx);
         a.destroy_for_testing();
         b.destroy_for_testing();
 
         let a_in = balance::create_for_testing<A>(10);
-        let b = pool.swap_a(a_in, 0); // aborts here
+        let b = pool.swap_a(&mut liquidity_layer, a_in, 0, &clock, ctx); // aborts here
 
         b.destroy_for_testing();
 
         test_scenario::return_shared(pool);
+        test_scenario::return_shared(liquidity_layer);
+        test_scenario::return_shared(clock);
     };
 
     test_scenario::end(scenario_val);
@@ -883,23 +1133,37 @@ fun test_swap_a_fails_on_zero_pool_balances() {
 fun test_swap_b_fails_on_zero_pool_balances() {
     let mut scenario_val = scenario_init(ADMIN);
     let scenario = &mut scenario_val;
-    scenario_create_pool(scenario, 100, 100, 30, 10);
+
+    common_tests::create_clock_and_share(scenario);
+    common_tests::init_liquidity_layer_for_testing(scenario, ADMIN);
+    common_tests::register_asset_vault_for_testing<A>(scenario, ADMIN);
+    common_tests::register_asset_vault_for_testing<B>(scenario, ADMIN);
+
+    scenario_create_pool<A, B>(scenario, 100, 100, 30, 10);
 
     scenario.next_tx(ADMIN);
     {
-        let mut pool = scenario.take_shared<Pool<A, B>>();
         let lp_coin = scenario.take_from_sender<Coin<LP<A, B>>>();
 
-        let (a, b) = pool.withdraw(lp_coin.into_balance(), 0, 0);
+        let mut pool = scenario.take_shared<Pool<A, B>>();
+        let mut liquidity_layer = scenario.take_shared<LiquidityLayer>();
+        let clock = scenario.take_shared<Clock>();
+        let ctx = scenario.ctx();
+
+        
+
+        let (a, b) = pool.withdraw(&mut liquidity_layer, lp_coin.into_balance(), 0, 0, &clock, ctx);
         a.destroy_for_testing();
         b.destroy_for_testing();
 
         let b_in = balance::create_for_testing<B>(10); // aborts here
-        let a = pool.swap_b(b_in, 0);
+        let a = pool.swap_b(&mut liquidity_layer, b_in, 0, &clock, ctx);
 
         a.destroy_for_testing();
 
         test_scenario::return_shared(pool);
+        test_scenario::return_shared(liquidity_layer);
+        test_scenario::return_shared(clock);
     };
 
     test_scenario::end(scenario_val);
@@ -909,15 +1173,24 @@ fun test_swap_b_fails_on_zero_pool_balances() {
 fun test_swap_a_without_lp_fees() {
     let mut scenario_val = scenario_init(ADMIN);
     let scenario = &mut scenario_val;
-    scenario_create_pool(scenario, 200, 100, 0, 10);
+
+    common_tests::create_clock_and_share(scenario);
+    common_tests::init_liquidity_layer_for_testing(scenario, ADMIN);
+    common_tests::register_asset_vault_for_testing<A>(scenario, ADMIN);
+    common_tests::register_asset_vault_for_testing<B>(scenario, ADMIN);
+
+    scenario_create_pool<A, B>(scenario, 200, 100, 0, 10);
 
     // swap; (200, 100, 141) -> (213, 94, 141)
     scenario.next_tx(USER);
     {
         let mut pool = scenario.take_shared<Pool<A, B>>();
+        let mut liquidity_layer = scenario.take_shared<LiquidityLayer>();
+        let clock = scenario.take_shared<Clock>();
+        let ctx = scenario.ctx();
 
         let a_in = balance::create_for_testing<A>(13);
-        let b_out = pool.swap_a(a_in, 6);
+        let b_out = pool.swap_a(&mut liquidity_layer, a_in, 6, &clock, ctx);
 
         // check
         let (a, b, lp) = pool.values();
@@ -930,6 +1203,8 @@ fun test_swap_a_without_lp_fees() {
         assert!(pool.admin_fee_value() == 0);
 
         test_scenario::return_shared(pool);
+        test_scenario::return_shared(liquidity_layer);
+        test_scenario::return_shared(clock);
         b_out.destroy_for_testing();
     };
 
@@ -940,15 +1215,24 @@ fun test_swap_a_without_lp_fees() {
 fun test_swap_b_without_lp_fees() {
     let mut scenario_val = scenario_init(ADMIN);
     let scenario = &mut scenario_val;
-    scenario_create_pool(scenario, 200, 100, 0, 10);
+
+    common_tests::create_clock_and_share(scenario);
+    common_tests::init_liquidity_layer_for_testing(scenario, ADMIN);
+    common_tests::register_asset_vault_for_testing<A>(scenario, ADMIN);
+    common_tests::register_asset_vault_for_testing<B>(scenario, ADMIN);
+
+    scenario_create_pool<A, B>(scenario, 200, 100, 0, 10);
 
     // swap; (200, 100, 141) -> (177, 113, 141)
     scenario.next_tx(USER);
     {
         let mut pool = scenario.take_shared<Pool<A, B>>();
+        let mut liquidity_layer = scenario.take_shared<LiquidityLayer>();
+        let clock = scenario.take_shared<Clock>();
+        let ctx = scenario.ctx();
 
         let b_in = balance::create_for_testing<B>(13);
-        let a_out = pool.swap_b(b_in, 23);
+        let a_out = pool.swap_b(&mut liquidity_layer, b_in, 23, &clock, ctx);
 
         // check
         let (a, b, lp) = pool.values();
@@ -961,6 +1245,8 @@ fun test_swap_b_without_lp_fees() {
         assert!(pool.admin_fee_value() == 0);
 
         test_scenario::return_shared(pool);
+        test_scenario::return_shared(liquidity_layer);
+        test_scenario::return_shared(clock);
         a_out.destroy_for_testing();
     };
 
@@ -971,15 +1257,24 @@ fun test_swap_b_without_lp_fees() {
 fun test_swap_a_with_lp_fees() {
     let mut scenario_val = scenario_init(ADMIN);
     let scenario = &mut scenario_val;
-    scenario_create_pool(scenario, 20000, 10000, 30, 0); // lp fee 30 bps
+
+    common_tests::create_clock_and_share(scenario);
+    common_tests::init_liquidity_layer_for_testing(scenario, ADMIN);
+    common_tests::register_asset_vault_for_testing<A>(scenario, ADMIN);
+    common_tests::register_asset_vault_for_testing<B>(scenario, ADMIN);
+
+    scenario_create_pool<A, B>(scenario, 20000, 10000, 30, 0); // lp fee 30 bps
 
     // swap; (20000, 10000, 14142) -> (21300, 9302, 14142)
     scenario.next_tx(USER);
     {
         let mut pool = scenario.take_shared<Pool<A, B>>();
+        let mut liquidity_layer = scenario.take_shared<LiquidityLayer>();       
+        let clock = scenario.take_shared<Clock>();
+        let ctx = scenario.ctx();
 
         let a_in = balance::create_for_testing<A>(1300);
-        let b_out = pool.swap_a(a_in, 608);
+        let b_out = pool.swap_a(&mut liquidity_layer, a_in, 608, &clock, ctx);
 
         // check
         let (a, b, lp) = pool.values();
@@ -990,6 +1285,8 @@ fun test_swap_a_with_lp_fees() {
         assert!(pool.admin_fee_value() == 0);
 
         test_scenario::return_shared(pool);
+        test_scenario::return_shared(liquidity_layer);
+        test_scenario::return_shared(clock);
         b_out.destroy_for_testing();
     };
 
@@ -997,9 +1294,12 @@ fun test_swap_a_with_lp_fees() {
     scenario.next_tx(USER);
     {
         let mut pool = scenario.take_shared<Pool<A, B>>();
+        let mut liquidity_layer = scenario.take_shared<LiquidityLayer>();
+        let clock = scenario.take_shared<Clock>();
+        let ctx = scenario.ctx();
 
         let a_in = balance::create_for_testing<A>(1);
-        let b_out = pool.swap_a(a_in, 0);
+        let b_out = pool.swap_a(&mut liquidity_layer, a_in, 0, &clock, ctx);
 
         let (a, b, lp) = pool.values();
         assert!(a == 21301);
@@ -1009,6 +1309,8 @@ fun test_swap_a_with_lp_fees() {
         assert!(pool.admin_fee_value() == 0);
 
         test_scenario::return_shared(pool);
+        test_scenario::return_shared(liquidity_layer);
+        test_scenario::return_shared(clock);
         b_out.destroy_for_testing();
     };
 
@@ -1019,15 +1321,24 @@ fun test_swap_a_with_lp_fees() {
 fun test_swap_b_with_lp_fees() {
     let mut scenario_val = scenario_init(ADMIN);
     let scenario = &mut scenario_val;
-    scenario_create_pool(scenario, 20000, 10000, 30, 0); // lp fee 30 bps
+
+    common_tests::create_clock_and_share(scenario);
+    common_tests::init_liquidity_layer_for_testing(scenario, ADMIN);
+    common_tests::register_asset_vault_for_testing<A>(scenario, ADMIN);
+    common_tests::register_asset_vault_for_testing<B>(scenario, ADMIN);
+
+    scenario_create_pool<A, B>(scenario, 20000, 10000, 30, 0); // lp fee 30 bps
 
     // swap; (20000, 10000, 14142) -> (17706, 11300, 14142)
     scenario.next_tx(USER);
     {
         let mut pool = scenario.take_shared<Pool<A, B>>();
+        let mut liquidity_layer = scenario.take_shared<LiquidityLayer>();               
+        let clock = scenario.take_shared<Clock>();
+        let ctx = scenario.ctx();
 
         let b_in = balance::create_for_testing<B>(1300);
-        let a_out = pool.swap_b(b_in, 2294);
+        let a_out = pool.swap_b(&mut liquidity_layer, b_in, 2294, &clock, ctx);
 
         let (a, b, lp) = pool.values();
         assert!(a == 17706);
@@ -1037,6 +1348,8 @@ fun test_swap_b_with_lp_fees() {
         assert!(pool.admin_fee_value() == 0);
 
         test_scenario::return_shared(pool);
+        test_scenario::return_shared(liquidity_layer);
+        test_scenario::return_shared(clock);
         a_out.destroy_for_testing();
     };
 
@@ -1044,9 +1357,12 @@ fun test_swap_b_with_lp_fees() {
     scenario.next_tx(USER);
     {
         let mut pool = scenario.take_shared<Pool<A, B>>();
+        let mut liquidity_layer = scenario.take_shared<LiquidityLayer>();
+        let clock = scenario.take_shared<Clock>();
+        let ctx = scenario.ctx();
 
         let b_in = balance::create_for_testing<B>(1);
-        let a_out = pool.swap_b(b_in, 0);
+        let a_out = pool.swap_b(&mut liquidity_layer, b_in, 0, &clock, ctx);
 
         let (a, b, lp) = pool.values();
         assert!(a == 17706);
@@ -1056,6 +1372,8 @@ fun test_swap_b_with_lp_fees() {
         assert!(pool.admin_fee_value() == 0);
 
         test_scenario::return_shared(pool);
+        test_scenario::return_shared(liquidity_layer);
+        test_scenario::return_shared(clock);
         a_out.destroy_for_testing();
     };
 
@@ -1066,15 +1384,24 @@ fun test_swap_b_with_lp_fees() {
 fun test_swap_a_with_admin_fees() {
     let mut scenario_val = scenario_init(ADMIN);
     let scenario = &mut scenario_val;
-    scenario_create_pool(scenario, 20000, 10000, 30, 30);
+
+    common_tests::create_clock_and_share(scenario);
+    common_tests::init_liquidity_layer_for_testing(scenario, ADMIN);
+    common_tests::register_asset_vault_for_testing<A>(scenario, ADMIN);
+    common_tests::register_asset_vault_for_testing<B>(scenario, ADMIN);
+
+    scenario_create_pool<A, B>(scenario, 20000, 10000, 30, 30);
 
     // swap; (20000, 10000, 14142) -> (25000, 8005, 14143)
     scenario.next_tx(USER);
     {
         let mut pool = scenario.take_shared<Pool<A, B>>();
+        let mut liquidity_layer = scenario.take_shared<LiquidityLayer>();   
+        let clock = scenario.take_shared<Clock>();
+        let ctx = scenario.ctx();
 
         let a_in = balance::create_for_testing<A>(5000);
-        let b_out = pool.swap_a(a_in, 1995);
+        let b_out = pool.swap_a(&mut liquidity_layer, a_in, 1995, &clock, ctx);
 
         let (a, b, lp) = pool.values();
         assert!(a == 25000);
@@ -1084,6 +1411,8 @@ fun test_swap_a_with_admin_fees() {
         assert!(pool.admin_fee_value() == 1);
 
         test_scenario::return_shared(pool);
+        test_scenario::return_shared(liquidity_layer);
+        test_scenario::return_shared(clock);
         b_out.destroy_for_testing();
     };
 
@@ -1094,15 +1423,24 @@ fun test_swap_a_with_admin_fees() {
 fun test_swap_b_with_admin_fees() {
     let mut scenario_val = scenario_init(ADMIN);
     let scenario = &mut scenario_val;
-    scenario_create_pool(scenario, 20000, 10000, 30, 30);
+
+    common_tests::create_clock_and_share(scenario);
+    common_tests::init_liquidity_layer_for_testing(scenario, ADMIN);
+    common_tests::register_asset_vault_for_testing<A>(scenario, ADMIN);
+    common_tests::register_asset_vault_for_testing<B>(scenario, ADMIN);
+
+    scenario_create_pool<A, B>(scenario, 20000, 10000, 30, 30);
 
     // swap; (20000, 10000, 14142) -> (13002, 15400, 14144)
     scenario.next_tx(USER);
     {
         let mut pool = scenario.take_shared<Pool<A, B>>();
+        let mut liquidity_layer = scenario.take_shared<LiquidityLayer>();   
+        let clock = scenario.take_shared<Clock>();
+        let ctx = scenario.ctx();
 
         let b_in = balance::create_for_testing<B>(5400);
-        let a_out = pool.swap_b(b_in, 6998);
+        let a_out = pool.swap_b(&mut liquidity_layer, b_in, 6998, &clock, ctx);
 
         let (a, b, lp) = pool.values();
         assert!(a == 13002);
@@ -1112,6 +1450,8 @@ fun test_swap_b_with_admin_fees() {
         assert!(pool.admin_fee_value() == 2);
 
         test_scenario::return_shared(pool);
+        test_scenario::return_shared(liquidity_layer);
+        test_scenario::return_shared(clock);
         a_out.destroy_for_testing();
     };
 
@@ -1122,13 +1462,22 @@ fun test_swap_b_with_admin_fees() {
 public fun test_admin_fees_are_correct() {
     let mut scenario_val = scenario_init(ADMIN);
     let scenario = &mut scenario_val;
-    scenario_create_pool(scenario, 10_000_000, 10_000_000, 30, 100);
+
+    common_tests::create_clock_and_share(scenario);
+    common_tests::init_liquidity_layer_for_testing(scenario, ADMIN);
+    common_tests::register_asset_vault_for_testing<A>(scenario, ADMIN);
+    common_tests::register_asset_vault_for_testing<B>(scenario, ADMIN);
+
+    scenario_create_pool<A, B>(scenario, 10_000_000, 10_000_000, 30, 100);
 
     scenario.next_tx(USER);
     {
         let mut pool = scenario.take_shared<Pool<A, B>>();
+        let mut liquidity_layer = scenario.take_shared<LiquidityLayer>();   
+        let clock = scenario.take_shared<Clock>();
+        let ctx = scenario.ctx();
 
-        let out = pool.swap_a(balance::create_for_testing(10_000), 0);
+        let out = pool.swap_a(&mut liquidity_layer, balance::create_for_testing(10_000), 0, &clock, ctx);
         assert_and_destroy_balance(out, 9960);
 
         let (a, b, lp) = pool.values();
@@ -1138,6 +1487,8 @@ public fun test_admin_fees_are_correct() {
         assert!(pool.admin_fee_value() == 14);
 
         test_scenario::return_shared(pool);
+        test_scenario::return_shared(liquidity_layer);
+        test_scenario::return_shared(clock);
     };
 
     test_scenario::end(scenario_val);
@@ -1148,18 +1499,29 @@ public fun test_admin_fees_are_correct() {
 fun test_swap_a_fails_on_min_out() {
     let mut scenario_val = scenario_init(ADMIN);
     let scenario = &mut scenario_val;
-    scenario_create_pool(scenario, 200, 100, 0, 10);
+
+    common_tests::create_clock_and_share(scenario);
+    common_tests::init_liquidity_layer_for_testing(scenario, ADMIN);
+    common_tests::register_asset_vault_for_testing<A>(scenario, ADMIN);
+    common_tests::register_asset_vault_for_testing<B>(scenario, ADMIN);
+
+    scenario_create_pool<A, B>(scenario, 200, 100, 0, 10);
 
     // swap; (200, 100, 141) -> (213, 94, 141)
     scenario.next_tx(USER);
     {
         let mut pool = scenario.take_shared<Pool<A, B>>();
+        let mut liquidity_layer = scenario.take_shared<LiquidityLayer>();           
+        let clock = scenario.take_shared<Clock>();
+        let ctx = scenario.ctx();
 
         let a_in = balance::create_for_testing<A>(13);
-        let b_out = pool.swap_a(a_in, 7); // aborts here
+        let b_out = pool.swap_a(&mut liquidity_layer, a_in, 7, &clock, ctx); // aborts here
 
         b_out.destroy_for_testing();
         test_scenario::return_shared(pool);
+        test_scenario::return_shared(liquidity_layer);
+        test_scenario::return_shared(clock);
     };
 
     test_scenario::end(scenario_val);
@@ -1170,17 +1532,28 @@ fun test_swap_a_fails_on_min_out() {
 fun test_swap_b_fails_on_min_out() {
     let mut scenario_val = scenario_init(ADMIN);
     let scenario = &mut scenario_val;
-    scenario_create_pool(scenario, 200, 100, 0, 10);
+
+    common_tests::create_clock_and_share(scenario);
+    common_tests::init_liquidity_layer_for_testing(scenario, ADMIN);
+    common_tests::register_asset_vault_for_testing<A>(scenario, ADMIN);
+    common_tests::register_asset_vault_for_testing<B>(scenario, ADMIN);
+
+    scenario_create_pool<A, B>(scenario, 200, 100, 0, 10);
 
     // swap; (200, 100, 141) -> (177, 113, 141)
     scenario.next_tx(USER);
     {
         let mut pool = scenario.take_shared<Pool<A, B>>();
+        let mut liquidity_layer = scenario.take_shared<LiquidityLayer>();   
+        let clock = scenario.take_shared<Clock>();
+        let ctx = scenario.ctx();
 
         let b_in = balance::create_for_testing<B>(13);
-        let a_out = pool.swap_b(b_in, 24); // aborts here
+        let a_out = pool.swap_b(&mut liquidity_layer, b_in, 24, &clock, ctx); // aborts here
 
         test_scenario::return_shared(pool);
+        test_scenario::return_shared(liquidity_layer);
+        test_scenario::return_shared(clock);
         a_out.destroy_for_testing();
     };
 
@@ -1193,17 +1566,28 @@ fun test_swap_b_fails_on_min_out() {
 fun test_admin_withdraw_fees() {
     let mut scenario_val = scenario_init(ADMIN);
     let scenario = &mut scenario_val;
-    scenario_create_pool(scenario, 20000, 10000, 30, 30);
+
+    common_tests::create_clock_and_share(scenario);
+    common_tests::init_liquidity_layer_for_testing(scenario, ADMIN);
+    common_tests::register_asset_vault_for_testing<A>(scenario, ADMIN);
+    common_tests::register_asset_vault_for_testing<B>(scenario, ADMIN);
+
+    scenario_create_pool<A, B>(scenario, 20000, 10000, 30, 30);
 
     // generate fees and withdraw 1
     scenario.next_tx(ADMIN);
     {
-        let mut pool = scenario.take_shared<Pool<A, B>>();
         let cap = scenario.take_from_sender<AdminCap>();
+
+        let mut pool = scenario.take_shared<Pool<A, B>>();
+        let mut liquidity_layer = scenario.take_shared<LiquidityLayer>();   
+        let clock = scenario.take_shared<Clock>();
+        let ctx = scenario.ctx();
+
 
         // generate fees
         let b_in = balance::create_for_testing<B>(5400);
-        let a_out = pool.swap_b(b_in, 6998);
+        let a_out = pool.swap_b(&mut liquidity_layer, b_in, 6998, &clock, ctx);
         a_out.destroy_for_testing();
         assert!(pool.admin_fee_value() == 2); // sanity check
 
@@ -1215,6 +1599,8 @@ fun test_admin_withdraw_fees() {
 
         test_scenario::return_shared(pool);
         test_scenario::return_to_sender(scenario, cap);
+        test_scenario::return_shared(liquidity_layer);
+        test_scenario::return_shared(clock);
         fees_out.destroy_for_testing();
     };
 
@@ -1222,7 +1608,8 @@ fun test_admin_withdraw_fees() {
     scenario.next_tx(ADMIN);
     {
         let mut pool = scenario.take_shared<Pool<A, B>>();
-        let cap = scenario.take_from_sender<AdminCap>();
+
+        let cap = scenario.take_from_sender<AdminCap>();    
 
         // withdraw
         let fees_out = dex::admin_withdraw_fees(&mut pool, &cap, 0);
@@ -1242,7 +1629,13 @@ fun test_admin_withdraw_fees() {
 fun test_admin_withdraw_fees_amount_0_and_balance_0() {
     let mut scenario_val = scenario_init(ADMIN);
     let scenario = &mut scenario_val;
-    scenario_create_pool(scenario, 20000, 10000, 30, 30);
+
+    common_tests::create_clock_and_share(scenario);
+    common_tests::init_liquidity_layer_for_testing(scenario, ADMIN);
+    common_tests::register_asset_vault_for_testing<A>(scenario, ADMIN);
+    common_tests::register_asset_vault_for_testing<B>(scenario, ADMIN);
+
+    scenario_create_pool<A, B>(scenario, 20000, 10000, 30, 30);
 
     // generate fees and withdraw 1
     scenario.next_tx(ADMIN);
@@ -1268,7 +1661,13 @@ fun test_admin_withdraw_fees_amount_0_and_balance_0() {
 fun test_admin_set_fees() {
     let mut scenario_val = scenario_init(ADMIN);
     let scenario = &mut scenario_val;
-    scenario_create_pool(scenario, 20000, 10000, 30, 30);
+
+    common_tests::create_clock_and_share(scenario);
+    common_tests::init_liquidity_layer_for_testing(scenario, ADMIN);
+    common_tests::register_asset_vault_for_testing<A>(scenario, ADMIN);
+    common_tests::register_asset_vault_for_testing<B>(scenario, ADMIN);
+
+    scenario_create_pool<A, B>(scenario, 20000, 10000, 30, 30);
 
     // sanity check
     scenario.next_tx(ADMIN);
@@ -1312,7 +1711,13 @@ fun test_admin_set_fees() {
 fun test_admin_set_fee_fails_on_invalid_lp_fee() {
     let mut scenario_val = scenario_init(ADMIN);
     let scenario = &mut scenario_val;
-    scenario_create_pool(scenario, 20000, 10000, 30, 30);
+
+    common_tests::create_clock_and_share(scenario);
+    common_tests::init_liquidity_layer_for_testing(scenario, ADMIN);
+    common_tests::register_asset_vault_for_testing<A>(scenario, ADMIN);
+    common_tests::register_asset_vault_for_testing<B>(scenario, ADMIN);
+
+    scenario_create_pool<A, B>(scenario, 20000, 10000, 30, 30);
 
     scenario.next_tx(ADMIN);
     {
@@ -1333,7 +1738,13 @@ fun test_admin_set_fee_fails_on_invalid_lp_fee() {
 fun test_admin_set_fee_fails_on_invalid_admin_fee() {
     let mut scenario_val = scenario_init(ADMIN);
     let scenario = &mut scenario_val;
-    scenario_create_pool(scenario, 20000, 10000, 30, 30);
+
+    common_tests::create_clock_and_share(scenario);
+    common_tests::init_liquidity_layer_for_testing(scenario, ADMIN);
+    common_tests::register_asset_vault_for_testing<A>(scenario, ADMIN);
+    common_tests::register_asset_vault_for_testing<B>(scenario, ADMIN);
+
+    scenario_create_pool<A, B>(scenario, 20000, 10000, 30, 30);
 
     scenario.next_tx(ADMIN);
     {

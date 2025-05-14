@@ -95,7 +95,7 @@ fun register_protocol<T>(sc: &mut Scenario, protocol_id: ID, sender: address) {
     let mut layer = sc.take_shared<LiquidityLayer>();
     let admin_cap = sc.take_from_sender<AdminCap>();
 
-    liquidity::register_protocol<T>(&mut layer, &admin_cap, protocol_id, protocol::new_lending_protocol_type(), sc.ctx());
+    liquidity::register_protocol_by_admin_cap<T>(&mut layer, &admin_cap, protocol_id, protocol::new_lending_protocol_type(), sc.ctx());
 
     ts::return_shared(layer);
     sc.return_to_sender(admin_cap);

@@ -5,14 +5,17 @@ module narval::dex;
 
 // use std::type_name::{Self, TypeName};
 use std::u128;
+
 use sui::balance::{Self, Balance, Supply, create_supply};
+use sui::clock::{Clock};
 use sui::event;
 
 
 use narval::admin::AdminCap;
+use narval::common::{YieldToken};
 use narval::liquidity::LiquidityLayer;
+use narval::protocol;
 use narval::util;
-
 
 /* ================= errors ================= */
 
@@ -57,9 +60,14 @@ public struct LP<phantom A, phantom B> has drop {}
 /// Pool represents an AMM Pool.
 public struct Pool<phantom A, phantom B> has key {
     id: UID,
-    balance_a: Balance<A>,
 
-    balance_b: Balance<B>,
+    balance_a: u64,
+
+    balance_b: u64,
+
+    yield_a: Balance<YieldToken<A>>,
+
+    yield_b: Balance<YieldToken<B>>,
 
     lp_supply: Supply<LP<A, B>>,
 
@@ -74,12 +82,17 @@ public struct Pool<phantom A, phantom B> has key {
     admin_fee_balance: Balance<LP<A, B>>,
 }
 
+/// Returns ID of the pool.
+public fun id<A, B>(pool: &Pool<A, B>): ID {
+    object::id(pool)
+}
+
 /// Returns the balances of token A and B present in the pool and the total
 /// supply of LP coins.
 public fun values<A, B>(pool: &Pool<A, B>): (u64, u64, u64) {
     (
-        pool.balance_a.value(),
-        pool.balance_b.value(),
+        pool.balance_a,
+        pool.balance_b,
         pool.lp_supply.supply_value(),
     )
 }
@@ -94,57 +107,8 @@ public fun admin_fee_value<A, B>(pool: &Pool<A, B>): u64 {
     pool.admin_fee_balance.value()
 }
 
-/* ================= PoolRegistry ================= */
-
-// /// `PoolRegistry` stores a table of all pools created which is used to guarantee
-// /// that only one pool per currency pair can exist.
-// public struct PoolRegistry has key, store {
-//     id: UID,
-//     table: Table<PoolPairItem, bool>,
-// }
-
-// /// An item in the `PoolRegistry` table. Represents a pool's currency pair.
-// public struct PoolRegistryItem has copy, drop, store {
-//     a: TypeName,
-//     b: TypeName,
-// }
-
-
-
-
-/* ================= math ================= */
-
-// /// Calculates (a * b) / c. Errors if result doesn't fit into u64.
-// fun muldiv(a: u64, b: u64, c: u64): u64 {
-//     (((a as u128) * (b as u128)) / (c as u128)) as u64
-// }
-
-// /// Calculates ceil_div((a * b), c). Errors if result doesn't fit into u64.
-// fun ceil_muldiv(a: u64, b: u64, c: u64): u64 {
-//     u128::divide_and_round_up((a as u128) * (b as u128), c as u128) as u64
-// }
-
-// /// Calculates sqrt(a * b).
-// fun mulsqrt(a: u64, b: u64): u64 {
-//     u128::sqrt((a as u128) * (b as u128)) as u64
-// }
-
-// /// Calculates (a * b) / c for u128. Errors if result doesn't fit into u128.
-// fun muldiv_u128(a: u128, b: u128, c: u128): u128 {
-//     (((a as u256) * (b as u256)) / (c as u256)) as u128
-// }
 
 /* ================= main logic ================= */
-
-// #[allow(lint(share_owned))]
-// /// Initializes the `PoolRegistry` objects and shares it, and transfers `AdminCap` to sender.
-// fun init(ctx: &mut TxContext) {
-//     transfer::share_object(new_registry(ctx));
-//     transfer::transfer(
-//         AdminCap { id: object::new(ctx) },
-//         ctx.sender(),
-//     )
-// }
 
 /// Creates a new Pool with provided initial balances. Returns the initial LP coins.
 public fun create<A, B>(
@@ -153,6 +117,7 @@ public fun create<A, B>(
     init_b: Balance<B>,
     lp_fee_bps: u64,
     admin_fee_pct: u64,
+    clock: &Clock,
     ctx: &mut TxContext,
 ): Balance<LP<A, B>> {
     // sanity checks
@@ -164,19 +129,37 @@ public fun create<A, B>(
     liquidity_layer.registry_dex<A, B>();
 
     // create pool
-    let mut pool = Pool<A, B> {
-        id: object::new(ctx),
-        balance_a: init_a,
-        balance_b: init_b,
-        lp_supply: create_supply(LP<A, B> {}),
+    let pool_uid = object::new(ctx);
+    let pool_id = object::uid_to_inner(&pool_uid);
+
+    // mint initial lp tokens
+    let balance_a = init_a.value();
+    let balance_b = init_b.value();
+
+    let lp_amt = util::mulsqrt(balance_a, balance_b);
+    let mut lp_supply = create_supply(LP<A, B>{});
+    let lp_balance = lp_supply.increase_supply(lp_amt);
+    
+    // register protocol
+    liquidity_layer.register_protocol<A>(pool_id, protocol::new_dex_protocol_type(), ctx);
+    // liquidity_layer.register_protocol<B>(pool_id, ProtocolType::Dex, ctx);
+
+
+    // deposit initial balances to liquidity layer
+    let yield_a = liquidity_layer.deposit<A>(pool_id, init_a, clock, ctx);
+    let yield_b = liquidity_layer.deposit<B>(pool_id, init_b, clock, ctx);
+
+    let pool = Pool<A, B> {
+        id: pool_uid,
+        balance_a,
+        balance_b,
+        yield_a,
+        yield_b,
+        lp_supply,
         lp_fee_bps,
         admin_fee_pct,
         admin_fee_balance: balance::zero<LP<A, B>>(),
     };
-
-    // mint initial lp tokens
-    let lp_amt = util::mulsqrt(pool.balance_a.value(), pool.balance_b.value());
-    let lp_balance = pool.lp_supply.increase_supply(lp_amt);
 
     event::emit(PoolCreationEvent { pool_id: object::id(&pool) });
     transfer::share_object(pool);
@@ -190,11 +173,14 @@ public fun create<A, B>(
 /// the other only partially. Otherwise, both input values will be fully used.
 /// Returns the remaining input amounts (if any) and LP Coin of appropriate value.
 /// Fails if the value of the issued LP Coin is smaller than `min_lp_out`.
-public fun deposit<A, B>(
+public fun deposit<A, B>( 
     pool: &mut Pool<A, B>,
+    liquidity_layer: &mut LiquidityLayer,
     mut input_a: Balance<A>,
     mut input_b: Balance<B>,
     min_lp_out: u64,
+    clock: &Clock,
+    ctx: &mut TxContext,
 ): (Balance<A>, Balance<B>, Balance<LP<A, B>>) {
     // sanity checks
     if (input_a.value() == 0 || input_b.value() == 0) {
@@ -204,10 +190,10 @@ public fun deposit<A, B>(
 
     // calculate the deposit amounts
     let dab: u128 = (input_a.value() as u128) * (
-        pool.balance_b.value() as u128,
+        pool.balance_b as u128,
     );
     let dba: u128 = (input_b.value() as u128) * (
-        pool.balance_a.value() as u128,
+        pool.balance_a as u128,
     );
 
     let deposit_a: u64;
@@ -218,26 +204,26 @@ public fun deposit<A, B>(
         deposit_a =
             u128::divide_and_round_up(
                 dba,
-                pool.balance_b.value() as u128,
+                pool.balance_b as u128,
             ) as u64;
         lp_to_issue =
             util::muldiv(
                 deposit_b,
                 pool.lp_supply.supply_value(),
-                pool.balance_b.value(),
+                pool.balance_b,
             );
     } else if (dab < dba) {
         deposit_a = input_a.value();
         deposit_b =
             u128::divide_and_round_up(
                 dab,
-                pool.balance_a.value() as u128,
+                pool.balance_a as u128,
             ) as u64;
         lp_to_issue =
             util::muldiv(
                 deposit_a,
                 pool.lp_supply.supply_value(),
-                pool.balance_a.value(),
+                pool.balance_a,
             );
     } else {
         deposit_a = input_a.value();
@@ -251,14 +237,19 @@ public fun deposit<A, B>(
                 util::muldiv(
                     deposit_a,
                     pool.lp_supply.supply_value(),
-                    pool.balance_a.value(),
+                    pool.balance_a,
                 );
         }
     };
 
     // deposit amounts into pool
-    pool.balance_a.join(input_a.split(deposit_a));
-    pool.balance_b.join(input_b.split(deposit_b));
+    // pool.balance_a.join(input_a.split(deposit_a));
+    // pool.balance_b.join(input_b.split(deposit_b));
+    let yield_a = liquidity_layer.deposit<A>(pool.id(), input_a.split(deposit_a), clock, ctx);
+    let yield_b = liquidity_layer.deposit<B>(pool.id(), input_b.split(deposit_b), clock, ctx);
+
+    pool.yield_a.join(yield_a);
+    pool.yield_b.join(yield_b);
 
     // mint lp coin
     assert!(lp_to_issue >= min_lp_out, EExcessiveSlippage);
@@ -273,9 +264,12 @@ public fun deposit<A, B>(
 /// respectively.
 public fun withdraw<A, B>(
     pool: &mut Pool<A, B>,
+    liquidity_layer: &mut LiquidityLayer,
     lp_in: Balance<LP<A, B>>,
     min_a_out: u64,
     min_b_out: u64,
+    clock: &Clock,
+    ctx: &mut TxContext,
 ): (Balance<A>, Balance<B>) {
     // sanity checks
     if (lp_in.value() == 0) {
@@ -285,22 +279,30 @@ public fun withdraw<A, B>(
 
     // calculate output amounts
     let lp_in_value = lp_in.value();
-    let pool_a_value = pool.balance_a.value();
-    let pool_b_value = pool.balance_b.value();
+    let pool_a_value = pool.balance_a;
+    let pool_b_value = pool.balance_b;
     let pool_lp_value = pool.lp_supply.supply_value();
 
     let a_out = util::muldiv(lp_in_value, pool_a_value, pool_lp_value);
     let b_out = util::muldiv(lp_in_value, pool_b_value, pool_lp_value);
+
     assert!(a_out >= min_a_out, EExcessiveSlippage);
     assert!(b_out >= min_b_out, EExcessiveSlippage);
 
     // burn lp tokens
     pool.lp_supply.decrease_supply(lp_in);
 
+    // TODO: Check yt shares
+    let yield_a = pool.yield_a.split(a_out);
+    let yield_b = pool.yield_b.split(b_out);
+
+    let a_balance = liquidity_layer.withdraw<A>(pool.id(), yield_a, clock, ctx);
+    let b_balance = liquidity_layer.withdraw<B>(pool.id(), yield_b, clock, ctx);
+
     // return amounts
     (
-        pool.balance_a.split(a_out),
-        pool.balance_b.split(b_out),
+        a_balance,
+        b_balance,
     )
 }
 
@@ -343,8 +345,11 @@ fun calc_swap_result(
 /// is smaller than `min_out`.
 public fun swap_a<A, B>(
     pool: &mut Pool<A, B>,
+    liquidity_layer: &mut LiquidityLayer,
     input: Balance<A>,
     min_out: u64,
+    clock: &Clock,
+    ctx: &mut TxContext,
 ): Balance<B> {
     if (input.value() == 0) {
         assert!(min_out == 0, EExcessiveSlippage);
@@ -352,14 +357,14 @@ public fun swap_a<A, B>(
         return balance::zero()
     };
     assert!(
-        pool.balance_a.value() > 0 && pool.balance_b.value() > 0,
+        pool.balance_a > 0 && pool.balance_b > 0,
         ENoLiquidity,
     );
 
     // calculate swap result
     let i_value = input.value();
-    let i_pool_value = pool.balance_a.value();
-    let o_pool_value = pool.balance_b.value();
+    let i_pool_value = pool.balance_a;
+    let o_pool_value = pool.balance_b;
     let pool_lp_value = pool.lp_supply.supply_value();
 
     let (out_value, admin_fee_in_lp) = calc_swap_result(
@@ -378,19 +383,27 @@ public fun swap_a<A, B>(
         .admin_fee_balance
         .join(pool.lp_supply.increase_supply(admin_fee_in_lp));
 
+    // TODO: Check yt shares
     // deposit input
-    pool.balance_a.join(input);
+    // pool.balance_a.join(input);
+    let yield_a = liquidity_layer.deposit<A>(pool.id(), input, clock, ctx);
+    pool.yield_a.join(yield_a);
 
     // return output
-    pool.balance_b.split(out_value)
+    // pool.balance_b.split(out_value)
+    let yield_b = pool.yield_b.split(out_value);
+    liquidity_layer.withdraw<B>(pool.id(), yield_b, clock, ctx)
 }
 
 /// Swaps the provided amount of B for A. Fails if the resulting amount of A
 /// is smaller than `min_out`.
 public fun swap_b<A, B>(
     pool: &mut Pool<A, B>,
+    liquidity_layer: &mut LiquidityLayer,
     input: Balance<B>,
     min_out: u64,
+    clock: &Clock,
+    ctx: &mut TxContext,
 ): Balance<A> {
     if (input.value() == 0) {
         assert!(min_out == 0, EExcessiveSlippage);
@@ -398,14 +411,14 @@ public fun swap_b<A, B>(
         return balance::zero()
     };
     assert!(
-        pool.balance_a.value() > 0 && pool.balance_b.value() > 0,
+        pool.balance_a > 0 && pool.balance_b > 0,
         ENoLiquidity,
     );
 
     // calculate swap result
     let i_value = input.value();
-    let i_pool_value = pool.balance_b.value();
-    let o_pool_value = pool.balance_a.value();
+    let i_pool_value = pool.balance_b;
+    let o_pool_value = pool.balance_a;
     let pool_lp_value = pool.lp_supply.supply_value();
 
     let (out_value, admin_fee_in_lp) = calc_swap_result(
@@ -425,10 +438,14 @@ public fun swap_b<A, B>(
         .join(pool.lp_supply.increase_supply(admin_fee_in_lp));
 
     // deposit input
-    pool.balance_b.join(input);
+    // pool.balance_b.join(input);
+    let yield_b = liquidity_layer.deposit<B>(pool.id(), input, clock, ctx);
+    pool.yield_b.join(yield_b);
 
     // return output
-    pool.balance_a.split(out_value)
+    // pool.balance_a.split(out_value)
+    let yield_a = pool.yield_a.split(out_value);
+    liquidity_layer.withdraw<A>(pool.id(), yield_a, clock, ctx)
 }
 
 /// Withdraw `amount` of collected admin fees by providing pool's PoolAdminCap.

@@ -21,7 +21,7 @@ const EInvalidLiquidityStatus: u64 = 0;
 const EAssetTypeAlreadyExisted: u64 = 1;
 const EProtocolNotFound: u64 = 2;
 const EProtocolAlreadyExisted: u64 = 3;
-const EProtocolAssetTypeMismatch: u64 = 4;
+// const EProtocolAssetTypeMismatch: u64 = 4;
 const EPoolAlreadyExists: u64 = 5;
 const EInvalidPair: u64 = 6;
 // const EProtocolInsufficientBalance: u64 = 6;
@@ -307,8 +307,9 @@ public fun check_protocol_not_exists(self: &LiquidityLayer, protocol_id: &ID) {
 /// Checks if the protocol asset type match the asset type.
 /// Aborts with `EProtocolAssetTypeMismatch` if the protocol asset type does not match the asset type.
 public fun check_protocol_asset_type_match(self: &LiquidityLayer, protocol_id: &ID, pt: &TypeName) {
-    let protocol_config = self.protocol_registry.get(protocol_id);
-    assert!(protocol_config.pt() == pt, EProtocolAssetTypeMismatch);
+    let protocol_config = self.protocol_registry.try_get(protocol_id);
+    assert!(protocol_config.is_some(), EProtocolNotFound);
+    // assert!(protocol_config.token_a() == pt, EProtocolAssetTypeMismatch);
 }
 
 // ------- Initialize function ------- //
@@ -338,7 +339,8 @@ public fun deposit<T>(self: &mut LiquidityLayer, protocol_id: ID, payload: Balan
         let pt = type_name::get<T>();
 
         self.check_protocol_exists(&protocol_id);
-        self.check_protocol_asset_type_match(&protocol_id, &pt);
+        self.check_asset_type_exists(pt);
+        // self.check_protocol_asset_type_match(&protocol_id, &pt);
 
         let deposit_value = payload.value();
         self.increment_protocol_amount(protocol_id, deposit_value);
@@ -364,7 +366,8 @@ public fun withdraw<T>(self: &mut LiquidityLayer, protocol_id: ID, shares: Balan
     let pt = type_name::get<T>();
 
     self.check_protocol_exists(&protocol_id);
-    self.check_protocol_asset_type_match(&protocol_id, &pt);
+    self.check_asset_type_exists(pt);
+    // self.check_protocol_asset_type_match(&protocol_id, &pt);
 
     // Initial check based on shares value might be inaccurate, 
     // but necessary if layer withdraw requires shares
@@ -452,7 +455,7 @@ public fun unregister_vault<T>(
 
 /// Register a new protocol to the LiquidityLayer
 /// Pause the liquidity layer
-public fun register_protocol<T>(self: &mut LiquidityLayer, _admin_cap: &AdminCap, protocol_id: ID, protocol_type: ProtocolType, ctx: &mut TxContext) {
+public(package) fun register_protocol<T>(self: &mut LiquidityLayer, protocol_id: ID, protocol_type: ProtocolType, ctx: &TxContext) {
     let pt = type_name::get<T>();
 
     self.check_liquidity_layer_is_active();
@@ -461,12 +464,26 @@ public fun register_protocol<T>(self: &mut LiquidityLayer, _admin_cap: &AdminCap
     
     self.add_protocol(
         protocol_id, 
-        protocol::new_protocol_config(protocol_id, pt, 0, protocol_type)
+        protocol::new_protocol_config(protocol_id,  0, protocol_type)
     );
 
+
     // Emit protocol registered event
-    layer_event::emit_protocol_registered_event(self.layer_id(), protocol_id, pt.into_string(), ctx.epoch_timestamp_ms(), ctx.epoch());
+    layer_event::emit_protocol_registered_event(
+        self.layer_id(), 
+        protocol_id, 
+        pt.into_string(), 
+        ctx.epoch_timestamp_ms(), 
+        ctx.epoch()
+    );
 }
+
+/// Register a new protocol to the LiquidityLayer
+/// Pause the liquidity layer
+public fun register_protocol_by_admin_cap<T>(self: &mut LiquidityLayer, _admin_cap: &AdminCap, protocol_id: ID, protocol_type: ProtocolType, ctx: &mut TxContext) {
+    register_protocol<T>(self, protocol_id, protocol_type, ctx)
+}
+
 
 /// Remove a protocol from the LiquidityLayer
 public fun unregister_protocol(self: &mut LiquidityLayer, _admin_cap: &AdminCap, protocol_id: ID, ctx: &mut TxContext) {
