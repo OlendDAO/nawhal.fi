@@ -45,7 +45,6 @@ public struct VaultRegisteredEvent has copy, drop, store {
 public struct ProtocolRegisteredEvent has copy, drop, store {
     layer_id: ID,
     protocol_id: ID,
-    asset_type: String,
     registered_at_ms: u64,
     registered_at_epoch: u64,
 }  
@@ -154,11 +153,10 @@ public fun emit_vault_registered_event(layer_id: ID, vault_id: ID, asset_type: S
 }
 
 /// Emit ProtocolRegisteredEvent
-public fun emit_protocol_registered_event(layer_id: ID, protocol_id: ID, asset_type: String, registered_at_ms: u64, registered_at_epoch: u64) {
+public fun emit_protocol_registered_event(layer_id: ID, protocol_id: ID, registered_at_ms: u64, registered_at_epoch: u64) {
     let event = ProtocolRegisteredEvent {
         layer_id,
         protocol_id,
-        asset_type,
         registered_at_ms,
         registered_at_epoch,
     };

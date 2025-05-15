@@ -188,7 +188,11 @@ public(package) fun add_protocol(self: &mut LiquidityLayer, protocol_id: ID, pro
 public(package) fun registry_dex<A, B>(self: &mut LiquidityLayer) {
     let a = type_name::get<A>();
     let b = type_name::get<B>();
+
     assert!(common::cmp_type_names(&a, &b) == 0, EInvalidPair);
+
+    self.check_asset_type_exists(a);
+    self.check_asset_type_exists(b);
 
     let item = common::new_pool_pair_item(a, b);
 
@@ -306,7 +310,7 @@ public fun check_protocol_not_exists(self: &LiquidityLayer, protocol_id: &ID) {
 
 /// Checks if the protocol asset type match the asset type.
 /// Aborts with `EProtocolAssetTypeMismatch` if the protocol asset type does not match the asset type.
-public fun check_protocol_asset_type_match(self: &LiquidityLayer, protocol_id: &ID, pt: &TypeName) {
+public fun check_protocol_asset_type_match(self: &LiquidityLayer, protocol_id: &ID) {
     let protocol_config = self.protocol_registry.try_get(protocol_id);
     assert!(protocol_config.is_some(), EProtocolNotFound);
     // assert!(protocol_config.token_a() == pt, EProtocolAssetTypeMismatch);
@@ -402,7 +406,7 @@ public fun withdraw<T>(self: &mut LiquidityLayer, protocol_id: ID, shares: Balan
 /// 
 /// # Ignores
 /// * If the asset type is already registered.
-fun register_asset_vault<T>(
+public(package) fun register_asset_vault<T>(
     self: &mut LiquidityLayer, 
     ctx: &mut TxContext
 ): VaultCap<T> {
@@ -455,11 +459,11 @@ public fun unregister_vault<T>(
 
 /// Register a new protocol to the LiquidityLayer
 /// Pause the liquidity layer
-public(package) fun register_protocol<T>(self: &mut LiquidityLayer, protocol_id: ID, protocol_type: ProtocolType, ctx: &TxContext) {
-    let pt = type_name::get<T>();
+public(package) fun register_protocol(self: &mut LiquidityLayer, protocol_id: ID, protocol_type: ProtocolType, ctx: &TxContext) {
+    // let pt = type_name::get<T>();
 
     self.check_liquidity_layer_is_active();
-    self.check_asset_type_exists(pt);
+    // self.check_asset_type_exists(pt);
     self.check_protocol_not_exists(&protocol_id);
     
     self.add_protocol(
@@ -472,7 +476,6 @@ public(package) fun register_protocol<T>(self: &mut LiquidityLayer, protocol_id:
     layer_event::emit_protocol_registered_event(
         self.layer_id(), 
         protocol_id, 
-        pt.into_string(), 
         ctx.epoch_timestamp_ms(), 
         ctx.epoch()
     );
@@ -480,8 +483,8 @@ public(package) fun register_protocol<T>(self: &mut LiquidityLayer, protocol_id:
 
 /// Register a new protocol to the LiquidityLayer
 /// Pause the liquidity layer
-public fun register_protocol_by_admin_cap<T>(self: &mut LiquidityLayer, _admin_cap: &AdminCap, protocol_id: ID, protocol_type: ProtocolType, ctx: &mut TxContext) {
-    register_protocol<T>(self, protocol_id, protocol_type, ctx)
+public fun register_protocol_by_admin_cap(self: &mut LiquidityLayer, _admin_cap: &AdminCap, protocol_id: ID, protocol_type: ProtocolType, ctx: &mut TxContext) {
+    register_protocol(self, protocol_id, protocol_type, ctx)
 }
 
 
@@ -505,7 +508,7 @@ public fun init_for_testing(ctx: &mut TxContext) {
 }
 
 #[test_only]
-public fun destroy_liquidity_layer_for_testing(layer: LiquidityLayer) {
+fun destroy_liquidity_layer_for_testing(layer: LiquidityLayer) {
     let LiquidityLayer {
         id,
         vault_registry,

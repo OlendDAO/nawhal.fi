@@ -121,7 +121,9 @@ public fun register_asset_vault_for_testing<T>(sc: &mut Scenario, sender: addres
     let mut layer = sc.take_shared<LiquidityLayer>();
     let admin_cap = sc.take_from_sender<AdminCap>();
     let vault_cap = liquidity::register_vault_by_admin_cap<T>(&mut layer, &admin_cap, sc.ctx());
+
     ts::return_shared(layer);
     sc.return_to_sender(admin_cap);
+    
     transfer::public_transfer(vault_cap, sender);
 }

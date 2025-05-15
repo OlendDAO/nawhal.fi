@@ -8,12 +8,16 @@ module narval::dex_tests;
 use sui::balance::{Self, Balance};
 use sui::clock::Clock;
 use sui::coin::{Self, Coin};
-use sui::test_scenario::{Self, Scenario};
 
 use narval::admin::AdminCap;
 use narval::dex::{Self, Pool, LP};
-use narval::common_tests;
 use narval::liquidity::{Self, LiquidityLayer};
+
+use sui::test_scenario::{Self, Scenario};
+
+use sui::test_utils::{Self, assert_eq};
+
+use narval::common_tests;
 
 const ADMIN: address = @0xABBA;
 const USER: address = @0xB0B;
@@ -46,7 +50,7 @@ fun scenario_create_pool<A, B>(
     admin_fee_pct: u64,
 ) {
     scenario.next_tx(ADMIN);
-    
+
     let mut registry = scenario.take_shared<LiquidityLayer>();
     let clock = scenario.take_shared<Clock>();
     let ctx = scenario.ctx();
@@ -81,12 +85,20 @@ fun test_pool_registry_add() {
     let ctx = &mut tx_context::dummy();
     let mut liquidity_layer = liquidity::new_liquidity_layer(ctx);
 
+    let bar_cap = liquidity_layer.register_asset_vault<BAR>(ctx);
+    let foo_cap = liquidity_layer.register_asset_vault<FOO>(ctx);
+    let food_cap_ = liquidity_layer.register_asset_vault<FOOd>(ctx);
+
     liquidity_layer.registry_dex<BAR, FOO>();
     liquidity_layer.registry_dex<FOO, FOOd>();
 
     liquidity_layer.remove_dex<BAR, FOO>();
     liquidity_layer.remove_dex<FOO, FOOd>();
-    liquidity_layer.destroy_liquidity_layer_for_testing();
+
+    test_utils::destroy(liquidity_layer);
+    test_utils::destroy(bar_cap);
+    test_utils::destroy(foo_cap);
+    test_utils::destroy(food_cap_);
 }
 
 #[test]
@@ -95,10 +107,16 @@ fun test_pool_registry_add_aborts_when_wrong_order() {
     let ctx = &mut tx_context::dummy();
     let mut liquidity_layer = liquidity::new_liquidity_layer(ctx);
 
+    let foo_cap = liquidity_layer.register_asset_vault<FOO>(ctx);
+    let bar_cap = liquidity_layer.register_asset_vault<BAR>(ctx);
+
     liquidity_layer.registry_dex<FOO, BAR>();
 
     liquidity_layer.remove_dex<FOO, BAR>();
-    liquidity_layer.destroy_liquidity_layer_for_testing();
+
+    test_utils::destroy(liquidity_layer);
+    test_utils::destroy(foo_cap);
+    test_utils::destroy(bar_cap);
 }
 
 #[test]
@@ -107,10 +125,15 @@ fun test_pool_registry_add_aborts_when_equal() {
     let ctx = &mut tx_context::dummy();
     let mut liquidity_layer = liquidity::new_liquidity_layer(ctx);
 
+    let foo_cap = liquidity_layer.register_asset_vault<FOO>(ctx);
+
     liquidity_layer.registry_dex<FOO, FOO>();
 
     liquidity_layer.remove_dex<FOO, FOO>();
-    liquidity_layer.destroy_liquidity_layer_for_testing();
+
+    test_utils::destroy(liquidity_layer);
+
+    test_utils::destroy(foo_cap);
 }
 
 #[test]
@@ -119,11 +142,18 @@ fun test_pool_registry_add_aborts_when_already_exists() {
     let ctx = &mut tx_context::dummy();
     let mut liquidity_layer = liquidity::new_liquidity_layer(ctx);
 
+    let bar_cap = liquidity_layer.register_asset_vault<BAR>(ctx);
+    let foo_cap = liquidity_layer.register_asset_vault<FOO>(ctx);
+
     liquidity_layer.registry_dex<BAR, FOO>();
     liquidity_layer.registry_dex<BAR, FOO>(); // aborts here
 
     liquidity_layer.remove_dex<BAR, FOO>();
-    liquidity_layer.destroy_liquidity_layer_for_testing();
+
+    test_utils::destroy(liquidity_layer);
+
+    test_utils::destroy(bar_cap);
+    test_utils::destroy(foo_cap);
 }
 
 
@@ -266,6 +296,7 @@ fun test_create_pool_fails_on_duplicate_pair() {
     common_tests::register_asset_vault_for_testing<A>(scenario, ADMIN);
     common_tests::register_asset_vault_for_testing<B>(scenario, ADMIN);
 
+    scenario.next_tx(ADMIN);
     {
         let mut liquidity_layer = scenario.take_shared<LiquidityLayer>();
         let clock = scenario.take_shared<Clock>();
@@ -402,6 +433,7 @@ fun test_create_pool() {
 
     common_tests::register_asset_vault_for_testing<A>(scenario, ADMIN);
     common_tests::register_asset_vault_for_testing<B>(scenario, ADMIN);
+    common_tests::register_asset_vault_for_testing<C>(scenario, ADMIN);
 
     scenario.next_tx(ADMIN);
     {
@@ -473,7 +505,6 @@ fun test_deposit_on_amount_a_zero() {
     common_tests::register_asset_vault_for_testing<A>(scenario, ADMIN);
     common_tests::register_asset_vault_for_testing<B>(scenario, ADMIN);
 
-    common_tests::register_asset_vault_for_testing<B>(scenario, USER);
 
     scenario_create_pool<A, B>(scenario, 100, 100, 30, 10);
 
@@ -1481,10 +1512,10 @@ public fun test_admin_fees_are_correct() {
         assert_and_destroy_balance(out, 9960);
 
         let (a, b, lp) = pool.values();
-        assert!(a == 10_010_000);
-        assert!(b == 9_990_040);
-        assert!(lp == 10_000_014);
-        assert!(pool.admin_fee_value() == 14);
+        assert_eq(a, 10_010_000);
+        assert_eq(b, 9_990_040);
+        assert_eq(lp, 10_000_014);
+        assert_eq(pool.admin_fee_value(), 14);
 
         test_scenario::return_shared(pool);
         test_scenario::return_shared(liquidity_layer);

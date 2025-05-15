@@ -1,7 +1,7 @@
 
 module narval::protocol;
 
-use std::type_name::TypeName;
+// use std::type_name::TypeName;
 
 use sui::balance::{Balance};
 use sui::vec_map::{VecMap};

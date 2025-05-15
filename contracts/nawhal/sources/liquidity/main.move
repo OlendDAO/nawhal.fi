@@ -33,10 +33,10 @@ public entry fun withdraw_api<T>(self: &mut LiquidityLayer, protocol_id: ID, sha
 }
 
 /// Entry fun for register protocol
-public entry fun register_protocol_api<T>(self: &mut LiquidityLayer, admin_cap: &AdminCap, protocol_id: ID, protocol_type: u8, ctx: &mut TxContext) {
+public entry fun register_protocol_api(self: &mut LiquidityLayer, admin_cap: &AdminCap, protocol_id: ID, protocol_type: u8, ctx: &mut TxContext) {
     let protocol_type = protocol::protocol_type_from_u8(protocol_type);
 
-    liquidity::register_protocol_by_admin_cap<T>(self, admin_cap, protocol_id, protocol_type, ctx);
+    liquidity::register_protocol_by_admin_cap(self, admin_cap, protocol_id, protocol_type, ctx);
 }
 
 /* ================= Governance functions ================= */

@@ -144,7 +144,7 @@ public fun register_lending_protocol<T>(
     let lending_protocol = new_lending_protocol<T>(supply_cap, ctx);
     let protocol_id = lending_protocol.protocol_id(); // Get ID before sharing
 
-    liquidity::register_protocol_by_admin_cap<T>(liquidity_layer, admin_cap, protocol_id, protocol::new_lending_protocol_type(), ctx);
+    liquidity::register_protocol_by_admin_cap(liquidity_layer, admin_cap, protocol_id, protocol::new_lending_protocol_type(), ctx);
     
     transfer::share_object(lending_protocol);
     protocol_id // Return the ID

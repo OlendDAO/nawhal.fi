@@ -41,7 +41,7 @@ fun test_liquidity_layer_main_flow_should_work() {
     
     // Deposit liquidity
     common_tests::register_asset_vault_for_testing<TBTC>(sc, alice());
-    register_protocol<TBTC>(sc, protocol_id, alice());
+    register_protocol(sc, protocol_id, alice());
 
     check_protocol_registered(sc, protocol_id, alice());
 
@@ -89,13 +89,13 @@ fun test_register_liquidity_vault_should_work() {
 }
 
 // Register a new protocol
-fun register_protocol<T>(sc: &mut Scenario, protocol_id: ID, sender: address) {
+fun register_protocol(sc: &mut Scenario, protocol_id: ID, sender: address) {
     sc.next_tx(sender);
 
     let mut layer = sc.take_shared<LiquidityLayer>();
     let admin_cap = sc.take_from_sender<AdminCap>();
 
-    liquidity::register_protocol_by_admin_cap<T>(&mut layer, &admin_cap, protocol_id, protocol::new_lending_protocol_type(), sc.ctx());
+    liquidity::register_protocol_by_admin_cap(&mut layer, &admin_cap, protocol_id, protocol::new_lending_protocol_type(), sc.ctx());
 
     ts::return_shared(layer);
     sc.return_to_sender(admin_cap);

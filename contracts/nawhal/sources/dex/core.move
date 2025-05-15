@@ -3,7 +3,7 @@
 
 module narval::dex;
 
-// use std::type_name::{Self, TypeName};
+// use std::type_name;
 use std::u128;
 
 use sui::balance::{Self, Balance, Supply, create_supply};
@@ -141,7 +141,8 @@ public fun create<A, B>(
     let lp_balance = lp_supply.increase_supply(lp_amt);
     
     // register protocol
-    liquidity_layer.register_protocol<A>(pool_id, protocol::new_dex_protocol_type(), ctx);
+
+    liquidity_layer.register_protocol(pool_id, protocol::new_dex_protocol_type(), ctx);
     // liquidity_layer.register_protocol<B>(pool_id, ProtocolType::Dex, ctx);
 
 
@@ -251,6 +252,9 @@ public fun deposit<A, B>(
     pool.yield_a.join(yield_a);
     pool.yield_b.join(yield_b);
 
+    pool.balance_a = pool.balance_a + deposit_a;
+    pool.balance_b = pool.balance_b + deposit_b;
+
     // mint lp coin
     assert!(lp_to_issue >= min_lp_out, EExcessiveSlippage);
     let lp = pool.lp_supply.increase_supply(lp_to_issue);
@@ -292,12 +296,15 @@ public fun withdraw<A, B>(
     // burn lp tokens
     pool.lp_supply.decrease_supply(lp_in);
 
-    // TODO: Check yt shares
-    let yield_a = pool.yield_a.split(a_out);
-    let yield_b = pool.yield_b.split(b_out);
+    pool.balance_a = pool.balance_a - a_out;
+    pool.balance_b = pool.balance_b - b_out;
 
-    let a_balance = liquidity_layer.withdraw<A>(pool.id(), yield_a, clock, ctx);
-    let b_balance = liquidity_layer.withdraw<B>(pool.id(), yield_b, clock, ctx);
+    // TODO: Check yt shares
+    let yield_a_to_withdraw = pool.yield_a.split(a_out);
+    let yield_b_to_withdraw = pool.yield_b.split(b_out);
+
+    let a_balance = liquidity_layer.withdraw<A>(pool.id(), yield_a_to_withdraw, clock, ctx);
+    let b_balance = liquidity_layer.withdraw<B>(pool.id(), yield_b_to_withdraw, clock, ctx);
 
     // return amounts
     (
@@ -385,14 +392,14 @@ public fun swap_a<A, B>(
 
     // TODO: Check yt shares
     // deposit input
-    // pool.balance_a.join(input);
     let yield_a = liquidity_layer.deposit<A>(pool.id(), input, clock, ctx);
     pool.yield_a.join(yield_a);
+    pool.balance_a = pool.balance_a + i_value;
 
     // return output
-    // pool.balance_b.split(out_value)
-    let yield_b = pool.yield_b.split(out_value);
-    liquidity_layer.withdraw<B>(pool.id(), yield_b, clock, ctx)
+    let yield_b_to_withdraw = pool.yield_b.split(out_value);
+    pool.balance_b = pool.balance_b - out_value;
+    liquidity_layer.withdraw<B>(pool.id(), yield_b_to_withdraw, clock, ctx)
 }
 
 /// Swaps the provided amount of B for A. Fails if the resulting amount of A
@@ -438,14 +445,14 @@ public fun swap_b<A, B>(
         .join(pool.lp_supply.increase_supply(admin_fee_in_lp));
 
     // deposit input
-    // pool.balance_b.join(input);
     let yield_b = liquidity_layer.deposit<B>(pool.id(), input, clock, ctx);
     pool.yield_b.join(yield_b);
+    pool.balance_b = pool.balance_b + i_value;
 
     // return output
-    // pool.balance_a.split(out_value)
-    let yield_a = pool.yield_a.split(out_value);
-    liquidity_layer.withdraw<A>(pool.id(), yield_a, clock, ctx)
+    let yield_a_to_withdraw = pool.yield_a.split(out_value);
+    pool.balance_a = pool.balance_a - out_value;
+    liquidity_layer.withdraw<A>(pool.id(), yield_a_to_withdraw, clock, ctx)
 }
 
 /// Withdraw `amount` of collected admin fees by providing pool's PoolAdminCap.
