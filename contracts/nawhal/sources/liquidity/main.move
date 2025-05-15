@@ -1,5 +1,5 @@
 
-module narval::liquidity_layer_main;
+module narval::liquidity_main;
 
 use sui::coin::{Self, Coin};
 use sui::clock::Clock;
