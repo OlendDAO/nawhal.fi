@@ -16,10 +16,64 @@ use narval::util;
 use narval::vault::{Self, Vault};
 use narval::common::YieldToken;
 
+use sui::test_utils;
+
 public struct A has drop {}
 
 fun mint_a_balance(amount: u64, ctx: &mut TxContext): Balance<A> {
     coin::mint_for_testing(amount, ctx).into_balance()
+}
+
+#[test]
+fun test_deposit_withdraw_direct_should_work() {
+    let protocol_id_a = object::id_from_address(@0xabc);
+    let protocol_id_b = object::id_from_address(@0xdef);
+
+    let mut ctx = tx_context::dummy();
+    let (mut vault, yb) = create_vault_for_testing(&mut ctx);
+
+    // Add direct deposit and withdraw
+    let payment = mint_a_balance(500, &mut ctx);
+    vault.deposit_direct(protocol_id_a, payment);
+
+    assert!(vault.reserved_funds() == 500, 0);
+    assert!(vault.reserved_funds_for_protocol(protocol_id_a) == 500, 0);
+
+    let withdraw_balance = vault.withdraw_direct(protocol_id_a, 100);
+    assert!(balance::value(&withdraw_balance) == 100, 0);
+
+    let payment_b = mint_a_balance(800, &mut ctx);
+    vault.deposit_direct(protocol_id_b, payment_b);
+
+    assert!(vault.reserved_funds() == 1200, 0);
+    assert!(vault.reserved_funds_for_protocol(protocol_id_a) == 400, 0);
+    assert!(vault.reserved_funds_for_protocol(protocol_id_b) == 800, 0);
+    
+    test_utils::destroy(withdraw_balance);
+    test_utils::destroy(vault);
+    test_utils::destroy(yb);
+}
+
+#[test]
+#[expected_failure(abort_code = vault::EReservedFundsNotEnough)]
+fun test_deposit_withdraw_direct_should_fail_if_reserved_funds_not_enough() {
+    let protocol_id_a = object::id_from_address(@0xabc);
+    let mut ctx = tx_context::dummy();
+    let (mut vault, yb) = create_vault_for_testing(&mut ctx);
+
+    // Add direct deposit and withdraw
+    let payment = mint_a_balance(500, &mut ctx);
+    vault.deposit_direct(protocol_id_a, payment);
+
+    let withdraw_balance = vault.withdraw_direct(protocol_id_a, 500);
+
+    // Should fail
+    let withdraw_balance_2 = vault.withdraw_direct(protocol_id_a, 1);
+
+    test_utils::destroy(withdraw_balance);
+    test_utils::destroy(withdraw_balance_2);
+    test_utils::destroy(vault);
+    test_utils::destroy(yb);
 }
 
 #[test]
@@ -61,11 +115,10 @@ fun test_total_available_balance() {
 
     assert!(vault.total_available_balance(&clock) == 260, 0);
 
-    sui::test_utils::destroy(vault);
-    sui::test_utils::destroy(clock);
+    test_utils::destroy(vault);
+    test_utils::destroy(clock);
 }
 
-#[test_only]
 fun assert_ticket_values<T>(
     ticket: &WithdrawTicket<T>,
     to_withdraw_from_available_balance: u64,
@@ -91,7 +144,6 @@ fun assert_ticket_values<T>(
     assert!(ticket.lp_to_burn_value() == lp_to_burn_amount, 0);
 }
 
-#[test_only]
 fun assert_ticket_total_withdraw<T>(ticket: &WithdrawTicket<T>, total: u64) {
     let mut i = 0;
     let n = ticket.strategy_infos_size();
@@ -106,7 +158,6 @@ fun assert_ticket_total_withdraw<T>(ticket: &WithdrawTicket<T>, total: u64) {
     assert!(total_withdraw == total, 0);
 }
 
-#[test_only]
 fun create_vault_for_testing(ctx: &mut TxContext): (Vault<A>, Balance<YieldToken<A>>) {
 
     let id_a = object::id_from_address(@0xA);
@@ -148,9 +199,9 @@ fun create_vault_for_testing(ctx: &mut TxContext): (Vault<A>, Balance<YieldToken
         ctx,
     );
         
-    let lp = vault::borrow_mut_lp_supply(&mut vault).increase_supply(10000);
+    let yb = vault::borrow_mut_lp_supply(&mut vault).increase_supply(10000);
 
-    (vault, lp)
+    (vault, yb)
 }
 
 #[test]
@@ -160,12 +211,12 @@ fun test_withdraw_from_free_balance() {
     let id_b = object::id_from_address(@0xB);
     let id_c = object::id_from_address(@0xC);
 
-    let (mut vault, mut lp) = create_vault_for_testing(&mut ctx);
+    let (mut vault, mut yb) = create_vault_for_testing(&mut ctx);
 
     let mut clock = clock::create_for_testing(&mut ctx);
     clock::increment_for_testing(&mut clock, 1000 * 1000);
 
-    let to_withdraw = balance::split(&mut lp, 500);
+    let to_withdraw = balance::split(&mut yb, 500);
     let ticket = vault::withdraw(&mut vault, to_withdraw, &clock);
 
     let mut keys = vector::empty();
@@ -177,6 +228,10 @@ fun test_withdraw_from_free_balance() {
     vector::push_back(&mut values, 0);
     vector::push_back(&mut values, 0);
 
+    // Add direct deposit and withdraw
+    let payment = mint_a_balance(500, &mut ctx);
+    vault.deposit_direct(id_a, payment);
+
     assert_ticket_values(
         &ticket,
         500,
@@ -185,10 +240,15 @@ fun test_withdraw_from_free_balance() {
         500,
     );
 
-    sui::test_utils::destroy(vault);
-    sui::test_utils::destroy(lp);
-    sui::test_utils::destroy(clock);
-    sui::test_utils::destroy(ticket);
+    let withdraw_balance = vault.withdraw_direct(id_a, 500);
+
+    assert!(balance::value(&withdraw_balance) == 500, 0);
+
+    test_utils::destroy(vault);
+    test_utils::destroy(yb);
+    test_utils::destroy(clock);
+    test_utils::destroy(ticket);
+    test_utils::destroy(withdraw_balance);
 }
 
 #[test]
@@ -198,12 +258,12 @@ fun test_withdraw_over_cap() {
     let id_b = object::id_from_address(@0xB);
     let id_c = object::id_from_address(@0xC);
 
-    let (mut vault, mut lp) = create_vault_for_testing(&mut ctx);
+    let (mut vault, mut yb) = create_vault_for_testing(&mut ctx);
 
     let mut clock = clock::create_for_testing(&mut ctx);
     clock::increment_for_testing(&mut clock, 1000 * 1000);
 
-    let to_withdraw = balance::split(&mut lp, 2200);
+    let to_withdraw = balance::split(&mut yb, 2200);
     let ticket = vault::withdraw(&mut vault, to_withdraw, &clock);
 
     let mut keys = vector::empty();
@@ -223,10 +283,10 @@ fun test_withdraw_over_cap() {
         2200,
     );
 
-    sui::test_utils::destroy(vault);
-    sui::test_utils::destroy(lp);
-    sui::test_utils::destroy(clock);
-    sui::test_utils::destroy(ticket);
+    test_utils::destroy(vault);
+    test_utils::destroy(yb);
+    test_utils::destroy(clock);
+    test_utils::destroy(ticket);
 }
 
 #[test]
@@ -236,12 +296,12 @@ fun test_withdraw_proportional_tiny() {
     let id_b = object::id_from_address(@0xB);
     let id_c = object::id_from_address(@0xC);
 
-    let (mut vault, mut lp) = create_vault_for_testing(&mut ctx);
+    let (mut vault, mut yb) = create_vault_for_testing(&mut ctx);
 
     let mut clock = clock::create_for_testing(&mut ctx);
     clock::increment_for_testing(&mut clock, 1000 * 1000);
 
-    let to_withdraw = balance::split(&mut lp, 2501);
+    let to_withdraw = balance::split(&mut yb, 2501);
     let ticket = vault::withdraw(&mut vault, to_withdraw, &clock);
 
     let mut keys = vector::empty();
@@ -261,10 +321,10 @@ fun test_withdraw_proportional_tiny() {
         2501,
     );
 
-    sui::test_utils::destroy(vault);
-    sui::test_utils::destroy(lp);
-    sui::test_utils::destroy(clock);
-    sui::test_utils::destroy(ticket);
+    test_utils::destroy(vault);
+    test_utils::destroy(yb);
+    test_utils::destroy(clock);
+    test_utils::destroy(ticket);
 }
 
 #[test]
@@ -274,12 +334,12 @@ fun test_withdraw_proportional_exact() {
     let id_b = object::id_from_address(@0xB);
     let id_c = object::id_from_address(@0xC);
 
-    let (mut vault, mut lp) = create_vault_for_testing(&mut ctx);
+    let (mut vault, mut yb) = create_vault_for_testing(&mut ctx);
 
     let mut clock = clock::create_for_testing(&mut ctx);
     clock::increment_for_testing(&mut clock, 1000 * 1000);
 
-    let to_withdraw = balance::split(&mut lp, 3250);
+    let to_withdraw = balance::split(&mut yb, 3250);
     let ticket = vault::withdraw(&mut vault, to_withdraw, &clock);
 
     let mut keys = vector::empty();
@@ -298,10 +358,10 @@ fun test_withdraw_proportional_exact() {
         3250,
     );
 
-    sui::test_utils::destroy(vault);
-    sui::test_utils::destroy(lp);
-    sui::test_utils::destroy(clock);
-    sui::test_utils::destroy(ticket);
+    test_utils::destroy(vault);
+    test_utils::destroy(yb);
+    test_utils::destroy(clock);
+    test_utils::destroy(ticket);
 }
 
 #[test]
@@ -311,12 +371,12 @@ fun test_withdraw_proportional_undivisible() {
     let id_b = object::id_from_address(@0xB);
     let id_c = object::id_from_address(@0xC);
 
-    let (mut vault, mut lp) = create_vault_for_testing(&mut ctx);
+    let (mut vault, mut yb) = create_vault_for_testing(&mut ctx);
 
     let mut clock = clock::create_for_testing(&mut ctx);
     clock::increment_for_testing(&mut clock, 1000 * 1000);
 
-    let to_withdraw = balance::split(&mut lp, 3251);
+    let to_withdraw = balance::split(&mut yb, 3251);
     let ticket = vault::withdraw(&mut vault, to_withdraw, &clock);
 
     let mut keys = vector::empty();
@@ -335,10 +395,10 @@ fun test_withdraw_proportional_undivisible() {
         3251,
     );
 
-    sui::test_utils::destroy(vault);
-    sui::test_utils::destroy(lp);
-    sui::test_utils::destroy(clock);
-    sui::test_utils::destroy(ticket);
+    test_utils::destroy(vault);
+    test_utils::destroy(yb);
+    test_utils::destroy(clock);
+    test_utils::destroy(ticket);
 }
 
 #[test]
@@ -348,12 +408,12 @@ fun test_withdraw_almost_all() {
     let id_b = object::id_from_address(@0xB);
     let id_c = object::id_from_address(@0xC);
 
-    let (mut vault, mut lp) = create_vault_for_testing(&mut ctx);
+    let (mut vault, mut yb) = create_vault_for_testing(&mut ctx);
 
     let mut clock = clock::create_for_testing(&mut ctx);
     clock::increment_for_testing(&mut clock, 1000 * 1000);
 
-    let to_withdraw = balance::split(&mut lp, 9999);
+    let to_withdraw = balance::split(&mut yb, 9999);
     let ticket = vault::withdraw(&mut vault, to_withdraw, &clock);
 
     let mut keys = vector::empty();
@@ -372,10 +432,10 @@ fun test_withdraw_almost_all() {
         9999,
     );
 
-    sui::test_utils::destroy(vault);
-    sui::test_utils::destroy(lp);
-    sui::test_utils::destroy(clock);
-    sui::test_utils::destroy(ticket);
+    test_utils::destroy(vault);
+    test_utils::destroy(yb);
+    test_utils::destroy(clock);
+    test_utils::destroy(ticket);
 }
 
 #[test]
@@ -408,30 +468,30 @@ fun test_withdraw_all() {
         10000,
     );
 
-    sui::test_utils::destroy(vault);
-    sui::test_utils::destroy(clock);
-    sui::test_utils::destroy(ticket);
+    test_utils::destroy(vault);
+    test_utils::destroy(clock);
+    test_utils::destroy(ticket);
 }
 
 #[test]
 fun test_withdraw_t_amt() {
     let mut ctx = tx_context::dummy();
 
-    let (mut vault, mut lp) = create_vault_for_testing(&mut ctx);
+    let (mut vault, mut yb) = create_vault_for_testing(&mut ctx);
 
     let mut clock = clock::create_for_testing(&mut ctx);
     clock::increment_for_testing(&mut clock, 1000 * 2000);
 
-    let ticket = vault::withdraw_t_amt(&mut vault, 3800, &mut lp, &clock);
+    let ticket = vault::withdraw_t_amt(&mut vault, 3800, &mut yb, &clock);
 
     assert_ticket_total_withdraw(&ticket, 3800);
     assert!(ticket.lp_to_burn_value() == 3455, 0);
-    assert!(balance::value(&lp) == 10000 - 3455, 0);
+    assert!(balance::value(&yb) == 10000 - 3455, 0);
 
-    sui::test_utils::destroy(lp);
-    sui::test_utils::destroy(vault);
-    sui::test_utils::destroy(clock);
-    sui::test_utils::destroy(ticket);
+    test_utils::destroy(yb);
+    test_utils::destroy(vault);
+    test_utils::destroy(clock);
+    test_utils::destroy(ticket);
 }
 
 #[test]
@@ -441,7 +501,7 @@ fun test_withdraw_ticket_redeem() {
     let id_b = object::id_from_address(@0xB);
     let id_c = object::id_from_address(@0xC);
 
-    let (mut vault, mut lp) = create_vault_for_testing(&mut ctx);
+    let (mut vault, mut yb) = create_vault_for_testing(&mut ctx);
 
     let mut strategy_infos = vec_map::empty();
     vec_map::insert(
@@ -461,7 +521,7 @@ fun test_withdraw_ticket_redeem() {
         protocol::new_strategy_withdraw_info<A>(1000, balance::create_for_testing(500), true),
     );
 
-    let ticket = protocol::new_withdraw_ticket(1000, strategy_infos, balance::split(&mut lp, 4500));
+    let ticket = protocol::new_withdraw_ticket(1000, strategy_infos, balance::split(&mut yb, 4500));
 
     let out = vault::redeem_withdraw_ticket(&mut vault, ticket);
 
@@ -477,9 +537,9 @@ fun test_withdraw_ticket_redeem() {
     assert!(vault.available_balance<A>() == 0, 0);
     assert!(vault.total_yt_supply<A>() == 5500, 0);
 
-    sui::test_utils::destroy(vault);
-    sui::test_utils::destroy(lp);
-    sui::test_utils::destroy(out);
+    test_utils::destroy(vault);
+    test_utils::destroy(yb);
+    test_utils::destroy(out);
 }
 
 #[test]
@@ -512,7 +572,7 @@ fun test_strategy_get_rebalance_amounts_one_strategy() {
         &mut ctx,
     );
      
-    let lp = vault::borrow_mut_lp_supply(&mut vault).increase_supply(10000);
+    let yb = vault::borrow_mut_lp_supply(&mut vault).increase_supply(10000);
 
     let mut clock = clock::create_for_testing(&mut ctx);
     clock::increment_for_testing(&mut clock, 1000 * 1000);
@@ -529,10 +589,10 @@ fun test_strategy_get_rebalance_amounts_one_strategy() {
     assert!(can_borrow == 2000, 0);
     assert!(to_repay == 0, 0);
 
-    sui::test_utils::destroy(vault);
-    sui::test_utils::destroy(lp);
-    sui::test_utils::destroy(clock);
-    sui::test_utils::destroy(vault_access_a);
+    test_utils::destroy(vault);
+    test_utils::destroy(yb);
+    test_utils::destroy(clock);
+    test_utils::destroy(vault_access_a);
 }
 
 #[test]
@@ -573,7 +633,7 @@ fun test_strategy_get_rebalance_amounts_two_strategies_balanced() {
         &mut ctx,
     );
 
-    let lp = vault::borrow_mut_lp_supply(&mut vault).increase_supply(12000);
+    let yb = vault::borrow_mut_lp_supply(&mut vault).increase_supply(12000);
 
     let mut clock = clock::create_for_testing(&mut ctx);
     clock::increment_for_testing(&mut clock, 1000 * 1000);
@@ -597,11 +657,11 @@ fun test_strategy_get_rebalance_amounts_two_strategies_balanced() {
     assert!(can_borrow == 1000, 0);
     assert!(to_repay == 0, 0);
 
-    sui::test_utils::destroy(vault);
-    sui::test_utils::destroy(lp);
-    sui::test_utils::destroy(clock);
-    sui::test_utils::destroy(vault_access_a);
-    sui::test_utils::destroy(vault_access_b);
+    test_utils::destroy(vault);
+    test_utils::destroy(yb);
+    test_utils::destroy(clock);
+    test_utils::destroy(vault_access_a);
+    test_utils::destroy(vault_access_b);
 }
 
 #[test]
@@ -642,7 +702,7 @@ fun test_strategy_get_rebalance_amounts_two_strategies_one_balanced() {
         &mut ctx,
     );
 
-    let lp = vault::borrow_mut_lp_supply(&mut vault).increase_supply(12000);
+    let yb = vault::borrow_mut_lp_supply(&mut vault).increase_supply(12000);
 
     let mut clock = clock::create_for_testing(&mut ctx);
     clock::increment_for_testing(&mut clock, 1000 * 1000);
@@ -666,11 +726,11 @@ fun test_strategy_get_rebalance_amounts_two_strategies_one_balanced() {
     assert!(can_borrow == 0, 0);
     assert!(to_repay == 0, 0);
 
-    sui::test_utils::destroy(vault);
-    sui::test_utils::destroy(lp);
-    sui::test_utils::destroy(clock);
-    sui::test_utils::destroy(vault_access_a);
-    sui::test_utils::destroy(vault_access_b);
+    test_utils::destroy(vault);
+    test_utils::destroy(yb);
+    test_utils::destroy(clock);
+    test_utils::destroy(vault_access_a);
+    test_utils::destroy(vault_access_b);
 }
 
 #[test]
@@ -711,7 +771,7 @@ fun test_strategy_get_rebalance_amounts_two_strategies_both_unbalanced() {
         &mut ctx,
     );
 
-    let lp = vault::borrow_mut_lp_supply(&mut vault).increase_supply(9100);
+    let yb = vault::borrow_mut_lp_supply(&mut vault).increase_supply(9100);
 
     let mut clock = clock::create_for_testing(&mut ctx);
     clock::increment_for_testing(&mut clock, 50 * 1000);
@@ -735,11 +795,11 @@ fun test_strategy_get_rebalance_amounts_two_strategies_both_unbalanced() {
     assert!(can_borrow == 0, 0);
     assert!(to_repay == 450, 0);
 
-    sui::test_utils::destroy(vault);
-    sui::test_utils::destroy(lp);
-    sui::test_utils::destroy(clock);
-    sui::test_utils::destroy(vault_access_a);
-    sui::test_utils::destroy(vault_access_b);
+    test_utils::destroy(vault);
+    test_utils::destroy(yb);
+    test_utils::destroy(clock);
+    test_utils::destroy(vault_access_a);
+    test_utils::destroy(vault_access_b);
 }
 
 #[test]
@@ -788,7 +848,7 @@ fun test_strategy_get_rebalance_amounts_with_cap_balanced() {
         &mut ctx,
     );
 
-    let lp = vault::borrow_mut_lp_supply(&mut vault).increase_supply(10000);
+    let yb = vault::borrow_mut_lp_supply(&mut vault).increase_supply(10000);
 
     let mut clock = clock::create_for_testing(&mut ctx);
     clock::increment_for_testing(&mut clock, 0 * 1000);
@@ -818,12 +878,12 @@ fun test_strategy_get_rebalance_amounts_with_cap_balanced() {
     assert!(can_borrow == 0, 0);
     assert!(to_repay == 0, 0);
 
-    sui::test_utils::destroy(vault);
-    sui::test_utils::destroy(lp);
-    sui::test_utils::destroy(clock);
-    sui::test_utils::destroy(vault_access_a);
-    sui::test_utils::destroy(vault_access_b);
-    sui::test_utils::destroy(vault_access_c);
+    test_utils::destroy(vault);
+    test_utils::destroy(yb);
+    test_utils::destroy(clock);
+    test_utils::destroy(vault_access_a);
+    test_utils::destroy(vault_access_b);
+    test_utils::destroy(vault_access_c);
 }
 
 #[test]
@@ -872,7 +932,7 @@ fun test_strategy_get_rebalance_amounts_with_cap_over_cap() {
         &mut ctx,
     );
 
-    let lp = vault::borrow_mut_lp_supply(&mut vault).increase_supply(15000);
+    let yb = vault::borrow_mut_lp_supply(&mut vault).increase_supply(15000);
 
     let mut clock = clock::create_for_testing(&mut ctx);
     clock::increment_for_testing(&mut clock, 2500 * 1000);
@@ -902,12 +962,12 @@ fun test_strategy_get_rebalance_amounts_with_cap_over_cap() {
     assert!(can_borrow == 2250, 0);
     assert!(to_repay == 0, 0);
 
-    sui::test_utils::destroy(vault);
-    sui::test_utils::destroy(lp);
-    sui::test_utils::destroy(clock);
-    sui::test_utils::destroy(vault_access_a);
-    sui::test_utils::destroy(vault_access_b);
-    sui::test_utils::destroy(vault_access_c);
+    test_utils::destroy(vault);
+    test_utils::destroy(yb);
+    test_utils::destroy(clock);
+    test_utils::destroy(vault_access_a);
+    test_utils::destroy(vault_access_b);
+    test_utils::destroy(vault_access_c);
 }
 
 #[test]
@@ -964,7 +1024,7 @@ fun test_strategy_get_rebalance_amounts_with_cap_over_and_under_cap() {
         &mut ctx,
     );
 
-    let lp = vault::borrow_mut_lp_supply(&mut vault).increase_supply(20000);
+    let yb = vault::borrow_mut_lp_supply(&mut vault).increase_supply(20000);
 
     let mut clock = clock::create_for_testing(&mut ctx);
     clock::increment_for_testing(&mut clock, 2500 * 1000);
@@ -1000,13 +1060,13 @@ fun test_strategy_get_rebalance_amounts_with_cap_over_and_under_cap() {
     assert!(can_borrow == 2250, 0);
     assert!(to_repay == 0, 0);
 
-    sui::test_utils::destroy(vault);
-    sui::test_utils::destroy(lp);
-    sui::test_utils::destroy(clock);
-    sui::test_utils::destroy(vault_access_a);
-    sui::test_utils::destroy(vault_access_b);
-    sui::test_utils::destroy(vault_access_c);
-    sui::test_utils::destroy(vault_access_d);
+    test_utils::destroy(vault);
+    test_utils::destroy(yb);
+    test_utils::destroy(clock);
+    test_utils::destroy(vault_access_a);
+    test_utils::destroy(vault_access_b);
+    test_utils::destroy(vault_access_c);
+    test_utils::destroy(vault_access_d);
 }
 
 #[test]
@@ -1071,7 +1131,7 @@ fun test_strategy_get_rebalance_amounts_with_cap_over_and_two_under_cap() {
         &mut ctx,
     );
 
-    let lp = vault::borrow_mut_lp_supply(&mut vault).increase_supply(25000);
+    let yb = vault::borrow_mut_lp_supply(&mut vault).increase_supply(25000);
 
     let mut clock = clock::create_for_testing(&mut ctx);
     clock::increment_for_testing(&mut clock, 2500 * 1000);
@@ -1113,14 +1173,14 @@ fun test_strategy_get_rebalance_amounts_with_cap_over_and_two_under_cap() {
     assert!(can_borrow == 1500, 0);
     assert!(to_repay == 0, 0);
 
-    sui::test_utils::destroy(vault);
-    sui::test_utils::destroy(lp);
-    sui::test_utils::destroy(clock);
-    sui::test_utils::destroy(vault_access_a);
-    sui::test_utils::destroy(vault_access_b);
-    sui::test_utils::destroy(vault_access_c);
-    sui::test_utils::destroy(vault_access_d);
-    sui::test_utils::destroy(vault_access_e);
+    test_utils::destroy(vault);
+    test_utils::destroy(yb);
+    test_utils::destroy(clock);
+    test_utils::destroy(vault_access_a);
+    test_utils::destroy(vault_access_b);
+    test_utils::destroy(vault_access_c);
+    test_utils::destroy(vault_access_d);
+    test_utils::destroy(vault_access_e);
 }
 
 #[test]
@@ -1185,7 +1245,7 @@ fun test_strategy_get_rebalance_amounts_with_cap_over_reduce_and_two_under_cap()
         &mut ctx,
     );
 
-    let lp = vault::borrow_mut_lp_supply(&mut vault).increase_supply(35000);
+    let yb = vault::borrow_mut_lp_supply(&mut vault).increase_supply(35000);
 
     let mut clock = clock::create_for_testing(&mut ctx);
     clock::increment_for_testing(&mut clock, 2500 * 1000);
@@ -1227,14 +1287,14 @@ fun test_strategy_get_rebalance_amounts_with_cap_over_reduce_and_two_under_cap()
     assert!(can_borrow == 0, 0);
     assert!(to_repay == 2106, 0);
 
-    sui::test_utils::destroy(vault);
-    sui::test_utils::destroy(lp);
-    sui::test_utils::destroy(clock);
-    sui::test_utils::destroy(vault_access_a);
-    sui::test_utils::destroy(vault_access_b);
-    sui::test_utils::destroy(vault_access_c);
-    sui::test_utils::destroy(vault_access_d);
-    sui::test_utils::destroy(vault_access_e);
+    test_utils::destroy(vault);
+    test_utils::destroy(yb);
+    test_utils::destroy(clock);
+    test_utils::destroy(vault_access_a);
+    test_utils::destroy(vault_access_b);
+    test_utils::destroy(vault_access_c);
+    test_utils::destroy(vault_access_d);
+    test_utils::destroy(vault_access_e);
 }
 
 #[test]
@@ -1267,7 +1327,7 @@ fun test_strategy_hand_over_profit() {
         &mut ctx,
     );
 
-    let lp = vault::borrow_mut_lp_supply(&mut vault).increase_supply(3000);
+    let yb = vault::borrow_mut_lp_supply(&mut vault).increase_supply(3000);
 
     let mut clock = clock::create_for_testing(&mut ctx);
     clock::increment_for_testing(&mut clock, 1000 * 1000);
@@ -1289,11 +1349,11 @@ fun test_strategy_hand_over_profit() {
     let fee_t = vault.redeem_withdraw_ticket(ticket);
     assert!(balance::value(&fee_t) == 500, 0);
 
-    sui::test_utils::destroy(vault);
-    sui::test_utils::destroy(lp);
-    sui::test_utils::destroy(clock);
-    sui::test_utils::destroy(vault_access_a);
-    sui::test_utils::destroy(fee_t);
+    test_utils::destroy(vault);
+    test_utils::destroy(yb);
+    test_utils::destroy(clock);
+    test_utils::destroy(vault_access_a);
+    test_utils::destroy(fee_t);
 }
 
 #[test]
@@ -1342,7 +1402,7 @@ fun test_remove_strategy() {
         &mut ctx,
     );
 
-    let lp = vault::borrow_mut_lp_supply(&mut vault).increase_supply(15500);
+    let yb = vault::borrow_mut_lp_supply(&mut vault).increase_supply(15500);
 
     let mut clock = clock::create_for_testing(&mut ctx);
     clock::increment_for_testing(&mut clock, 1000 * 1000);
@@ -1368,10 +1428,10 @@ fun test_remove_strategy() {
 
     assert!(vault.strategy_withdraw_priority_order() == exp_priority_order, 0);
 
-    sui::test_utils::destroy(vault);
-    sui::test_utils::destroy(lp);
-    sui::test_utils::destroy(admin_cap);
-    sui::test_utils::destroy(vault_access_a);
-    sui::test_utils::destroy(vault_access_c);
-    sui::test_utils::destroy(clock);
+    test_utils::destroy(vault);
+    test_utils::destroy(yb);
+    test_utils::destroy(admin_cap);
+    test_utils::destroy(vault_access_a);
+    test_utils::destroy(vault_access_c);
+    test_utils::destroy(clock);
 }

@@ -10,6 +10,7 @@ use sui::balance::{Self, Balance, Supply};
 use sui::clock::Clock;
 // use sui::coin::{Self, TreasuryCap};
 use sui::event;
+use sui::table::{Self, Table};
 use sui::vec_map::{Self, VecMap};
 use sui::vec_set::{Self};
 
@@ -72,11 +73,14 @@ const EWrongVersion: u64 = 9;
 /// Migration is not an upgrade
 const ENotUpgrade: u64 = 10;
 
-// /// UpgradeCap object doesn't belong to this package
-// const EInvalidUpgradeCap: u64 = 11;
+/// Vault is not active
+const EVaultNotActive: u64 = 11;
 
-// /// Treasury supply has to be 0
-// const ETreasurySupplyPositive: u64 = 12;
+/// Reserved funds are not enough
+const EReservedFundsNotEnough: u64 = 12;
+
+/// Reserved funds for a protocol are not enough
+const EReservedFundsNotEnoughForProtocol: u64 = 13;
 
 /* ================= events ================= */
 
@@ -109,6 +113,10 @@ public struct Vault<phantom T> has key, store {
     id: UID,
     /// balance that's not allocated to any strategy
     available_balance: Balance<T>,
+    /// total reserved funds for borrow and collateral
+    reserved_funds: u64,
+    /// reserved funds for each protocol
+    reserved_protocols: Table<ID, u64>,
     /// slowly distribute profits over time to avoid sandwitch attacks on rebalance
     time_locked_profit: TimeLockedBalance<T>,
     /// supply of the vault's yield-bearing token
@@ -154,29 +162,61 @@ public fun new_closed_status(): Status {
     Status::Closed
 }
 
-public(package) fun new<T>(ctx: &mut TxContext): (Vault<T>, VaultCap<T>) {
+public(package) fun create<T>(ctx: &mut TxContext): (Vault<T>, VaultCap<T>) {
 
-    let vault = Vault<T> {
-        id: object::new(ctx),
-        available_balance: balance::zero(),
-        time_locked_profit: tlb::create(balance::zero(), 0, 0),
-        lp_supply: balance::create_supply(common::new_yield_token<T>()),
-        strategies: vec_map::empty(),
-        performance_fee_balance: balance::zero(),
-        strategy_withdraw_priority_order: vector::empty(),
-        withdraw_ticket_issued: false,
-        tvl_cap: option::none(),
-        profit_unlock_duration_sec: DEFAULT_PROFIT_UNLOCK_DURATION_SEC,
-        performance_fee_bps: 0,
-        status: new_active_status(),
-        version: MODULE_VERSION,
-    };
-
-    // transfer::share_object(vault);
+    let vault = new(
+        balance::zero(), 
+        0, 
+        table::new(ctx), 
+        tlb::create(balance::zero(), 0, 0), 
+        balance::create_supply(common::new_yield_token<T>()),
+        vec_map::empty(), 
+        vector::empty(), 
+        false, 
+        option::none(), 
+        DEFAULT_PROFIT_UNLOCK_DURATION_SEC, 
+        0, 
+        MODULE_VERSION,     
+        ctx
+    );
 
     // since there can be only one `TreasuryCap<YT>` for type `YT`, there can be only
     // one `Vault<T, YT>` and `AdminCap<YT>` for type `YT` as well.
     (vault, access::new_vault_cap(ctx))
+}
+
+public fun new<T>(
+    available_balance: Balance<T>,
+    reserved_funds: u64,
+    reserved_protocols: Table<ID, u64>,
+    time_locked_profit: TimeLockedBalance<T>,
+    lp_supply: Supply<YieldToken<T>>,
+    strategies: VecMap<ID, StrategyState>,
+    strategy_withdraw_priority_order: vector<ID>,
+    withdraw_ticket_issued: bool,
+    tvl_cap: Option<u64>,
+    profit_unlock_duration_sec: u64,
+    performance_fee_bps: u64,
+    version: u64,
+    ctx: &mut TxContext,
+): Vault<T> {
+    Vault<T> {
+        id: object::new(ctx),
+        available_balance,
+        reserved_funds,
+        reserved_protocols,
+        time_locked_profit,
+        lp_supply,
+        strategies,
+        strategy_withdraw_priority_order,
+        performance_fee_balance: balance::zero(),
+        performance_fee_bps,
+        profit_unlock_duration_sec,
+        tvl_cap,
+        version,
+        status: new_active_status(),
+        withdraw_ticket_issued,
+    }
 }
 
 /* ================= read ================= */
@@ -186,8 +226,23 @@ public fun id<T>(self: &Vault<T>): ID {
 }
 
 /// Assert the version of the vault
-public fun assert_version<T>(vault: &Vault<T>) {
+public fun check_latest_version<T>(vault: &Vault<T>) {
     assert!(vault.version == MODULE_VERSION, EWrongVersion);
+}
+
+/// Check the status of the vault
+public fun check_active_status<T>(vault: &Vault<T>) {
+    assert!(vault.status == Status::Active, EVaultNotActive);
+}
+
+/// Check if the reserved funds are enough
+public fun check_reserved_funds_enough<T>(vault: &Vault<T>, amount: u64) {
+    assert!(vault.reserved_funds >= amount, EReservedFundsNotEnough);
+}
+
+/// Check if the reserved funds for a protocol are enough
+public fun check_reserved_funds_enough_for_protocol<T>(vault: &Vault<T>, protocol_id: ID, amount: u64) {
+    assert!(vault.reserved_funds_for_protocol(protocol_id) >= amount, EReservedFundsNotEnoughForProtocol);
 }
 
 public fun available_balance<T>(vault: &Vault<T>): u64 {
@@ -230,6 +285,17 @@ public fun available_balance_value<T>(vault: &Vault<T>): u64 {
     vault.available_balance.value()
 }
 
+/// Get reserved funds value
+public fun reserved_funds<T>(vault: &Vault<T>): u64 {
+    vault.reserved_funds
+}
+
+/// Get reserved funds for a protocol
+public fun reserved_funds_for_protocol<T>(vault: &Vault<T>, protocol_id: ID): u64 {
+    *vault.reserved_protocols.borrow(protocol_id)
+}
+
+/// Get available balance value
 /// Get performance fee balance value
 public fun performance_fee_balance_value<T>(vault: &Vault<T>): u64 {
     vault.performance_fee_balance.value()
@@ -312,7 +378,7 @@ entry fun set_strategy_max_borrow<T>(
     strategy_id: ID,
     max_borrow: Option<u64>,
 ) {
-    vault.assert_version();
+    vault.check_latest_version();
 
     let state = vault.get_mut_strategy_state(&strategy_id);
     state.set_max_borrow(max_borrow);
@@ -324,7 +390,7 @@ entry fun set_strategy_target_alloc_weights_bps<T>(
     ids: vector<ID>,
     weights_bps: vector<u64>,
 ) {
-    vault.assert_version();
+    vault.check_latest_version();
 
     let mut ids_seen = vec_set::empty<ID>();
     let mut total_bps = 0;
@@ -358,7 +424,7 @@ public fun remove_strategy<T>(
     weights_bps: vector<u64>,
     clock: &Clock,
 ) {
-    vault.assert_version();
+    vault.check_latest_version();
 
     // extract the ticket and destroy the access
     let (access, mut returned_balance) = ticket.extract();
@@ -399,7 +465,7 @@ public fun add_strategy<T>(
     vault: &mut Vault<T>,
     ctx: &mut TxContext,
 ): VaultAccess {
-    vault.assert_version();
+    vault.check_latest_version();
 
     let access = access::new_vault_access(ctx);
     let strategy_id = access.vault_access_id();
@@ -426,7 +492,7 @@ public fun set_status<T>(
     vault: &mut Vault<T>,
     status: Status,
 ) {
-    vault.assert_version();
+    vault.check_latest_version();
     vault.status = status;
 }
 
@@ -434,7 +500,7 @@ entry fun pause<T>(
     _cap: &VaultCap<T>,
     vault: &mut Vault<T>,
 ) {
-    vault.assert_version();
+    vault.check_latest_version();
     vault.status = new_paused_status();
 }
 
@@ -442,7 +508,7 @@ entry fun resume<T>(
     _cap: &VaultCap<T>,
     vault: &mut Vault<T>,
 ) {
-    vault.assert_version();
+    vault.check_latest_version();
     vault.status = new_active_status();
 }   
 
@@ -451,7 +517,7 @@ entry fun set_tvl_cap<T>(
     vault: &mut Vault<T>,
     tvl_cap: Option<u64>,
 ) {
-    vault.assert_version();
+    vault.check_latest_version();
     vault.tvl_cap = tvl_cap;
 }
 
@@ -460,7 +526,7 @@ entry fun set_profit_unlock_duration_sec<T>(
     vault: &mut Vault<T>,
     profit_unlock_duration_sec: u64,
 ) {
-    vault.assert_version();
+    vault.check_latest_version();
     vault.profit_unlock_duration_sec = profit_unlock_duration_sec;
 }
 
@@ -469,7 +535,7 @@ entry fun set_performance_fee_bps<T>(
     vault: &mut Vault<T>,
     performance_fee_bps: u64,
 ) {
-    vault.assert_version();
+    vault.check_latest_version();
     assert!(performance_fee_bps <= BPS_IN_100_PCT, EInvalidBPS);
     vault.performance_fee_bps = performance_fee_bps;
 }
@@ -479,7 +545,7 @@ public fun withdraw_performance_fee<T>(
     vault: &mut Vault<T>,
     amount: u64,
 ): Balance<YieldToken<T>> {
-    vault.assert_version();
+    vault.check_latest_version();
     vault.performance_fee_balance.split(amount)
 }
 
@@ -488,7 +554,7 @@ entry fun pull_unlocked_profits_to_available_balance<T>(
     vault: &mut Vault<T>,
     clock: &Clock,
 ) {
-    vault.assert_version();
+    vault.check_latest_version();
 
     let balance = vault.time_locked_profit.withdraw_all(clock);
 
@@ -504,8 +570,9 @@ public(package) fun deposit<T>(
     payment: Balance<T>,
     clock: &Clock,
 ): Balance<YieldToken<T>> {
-    assert_version(vault);
+    check_latest_version(vault);
     assert!(vault.withdraw_ticket_issued == false, EWithdrawTicketIssued);
+
     if (payment.value() == 0) {
         payment.destroy_zero();
         return balance::zero()
@@ -541,13 +608,14 @@ public(package) fun deposit<T>(
         assert!(total_available_balance + payment.value() <= tvl_cap, EDepositTooLarge);
     };
 
-    let lp_amount = if (total_available_balance == 0) {
+    let available_amount = vault.available_balance.value() - vault.reserved_funds;
+    let lp_amount = if (available_amount == 0) {
         payment.value()
     } else {
         muldiv(
             vault.lp_supply.supply_value(),
             payment.value(),
-            total_available_balance,
+            available_amount,
         )
     };
 
@@ -558,6 +626,26 @@ public(package) fun deposit<T>(
 
     vault.available_balance.join(payment);
     vault.lp_supply.increase_supply(lp_amount)
+}
+
+/// Deposit directly to the vault without minting YieldToken
+/// The deposit assert is direct join to available balance and add to reserved funds
+/// For collateral and borrow, and DEX LP supply
+public(package) fun deposit_direct<T>(
+    vault: &mut Vault<T>,
+    protocol_id: ID,
+    payment: Balance<T>,
+) {
+    check_latest_version(vault);
+    check_active_status(vault);
+
+    vault.reserved_funds = vault.reserved_funds + payment.value();
+    if (vault.reserved_protocols.contains(protocol_id)) {
+        *vault.reserved_protocols.borrow_mut(protocol_id) = *vault.reserved_protocols.borrow(protocol_id) + payment.value();
+    } else {
+        vault.reserved_protocols.add(protocol_id, payment.value());
+    };
+    vault.available_balance.join(payment); 
 }
 
 fun create_withdraw_ticket<T>(vault: &Vault<T>): WithdrawTicket<T> {
@@ -576,12 +664,28 @@ fun create_withdraw_ticket<T>(vault: &Vault<T>): WithdrawTicket<T> {
     protocol::new_withdraw_ticket(0, strategy_infos, balance::zero())
 }
 
+public(package) fun withdraw_direct<T>(
+    vault: &mut Vault<T>,
+    protocol_id: ID,
+    amount: u64,
+): Balance<T> {
+    check_latest_version(vault);
+    check_active_status(vault);
+
+    check_reserved_funds_enough(vault, amount);
+    check_reserved_funds_enough_for_protocol(vault, protocol_id, amount);
+
+    *vault.reserved_protocols.borrow_mut(protocol_id) = *vault.reserved_protocols.borrow(protocol_id) - amount;
+    vault.reserved_funds = vault.reserved_funds - amount;
+    vault.available_balance.split(amount)
+}
+
 public fun withdraw<T>(
     vault: &mut Vault<T>,
     payment: Balance<YieldToken<T>>,
     clock: &Clock,
 ): WithdrawTicket<T> {
-    assert_version(vault);
+    check_latest_version(vault);
     assert!(vault.withdraw_ticket_issued == false, EWithdrawTicketIssued);
     assert!(payment.value() > 0, EZeroAmount);
     vault.withdraw_ticket_issued = true;
@@ -594,7 +698,7 @@ public fun withdraw<T>(
     vault.join_available_balance(balance);
 
     // calculate withdraw amount
-    let total_available = total_available_balance(vault, clock);
+    let total_available = total_available_balance(vault, clock) - vault.reserved_funds;
     let mut remaining_to_withdraw = muldiv(
         ticket.lp_to_burn_value(),
         total_available,
@@ -718,7 +822,7 @@ public(package) fun redeem_withdraw_ticket<T>(
     vault: &mut Vault<T>,
     ticket: WithdrawTicket<T>,
 ): Balance<T> {
-    assert_version(vault);
+    check_latest_version(vault);
 
     let mut out = balance::zero();
 
@@ -989,7 +1093,7 @@ public(package) fun strategy_repay<T>(
     access: &VaultAccess,
     balance: Balance<T>,
 ) {
-    assert_version(vault);
+    check_latest_version(vault);
     assert!(vault.withdraw_ticket_issued == false, EWithdrawTicketIssued);
 
     // amounts are purposefully not checked here because the strategies
@@ -1010,7 +1114,7 @@ public(package) fun strategy_borrow<T>(
     access: &VaultAccess,
     amount: u64,
 ): Balance<T> {
-    assert_version(vault);
+    check_latest_version(vault);
     assert!(vault.withdraw_ticket_issued == false, EWithdrawTicketIssued);
 
     // amounts are purpusfully not checked here because the strategies
@@ -1031,7 +1135,7 @@ public(package) fun strategy_hand_over_profit<T>(
     profit: Balance<T>,
     clock: &Clock,
 ) {
-    assert_version(vault);
+    check_latest_version(vault);
     assert!(vault.withdraw_ticket_issued == false, EWithdrawTicketIssued);
     let strategy_id = access.vault_access_id();
     assert!(vault.strategies.contains(&strategy_id), EInvalidVaultAccess);
@@ -1105,19 +1209,19 @@ public fun new_for_testing<T>(
     version: u64,
     ctx: &mut TxContext,
 ): Vault<T> {
-    Vault<T> {
-        id: object::new(ctx),
-        available_balance,
-        time_locked_profit,
-        lp_supply: balance::create_supply(common::new_yield_token<T>()),
-        strategies,
-        strategy_withdraw_priority_order,
-        performance_fee_balance: balance::zero(),
-        performance_fee_bps,
-        profit_unlock_duration_sec,
-        tvl_cap,
-        version,
-        status: new_active_status(),
-        withdraw_ticket_issued,
-    }
+    new(
+        available_balance, 
+        0, 
+        table::new(ctx), 
+        time_locked_profit, 
+        balance::create_supply(common::new_yield_token<T>()), 
+        strategies, 
+        strategy_withdraw_priority_order, 
+        withdraw_ticket_issued, 
+        tvl_cap, 
+        profit_unlock_duration_sec, 
+        performance_fee_bps, 
+        version, 
+        ctx
+    )
 }

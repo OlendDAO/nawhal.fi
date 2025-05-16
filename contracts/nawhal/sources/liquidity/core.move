@@ -415,7 +415,7 @@ public(package) fun register_asset_vault<T>(
     check_liquidity_layer_is_active(self);
     check_asset_type_not_exists(self, pt);
 
-    let (vault, vault_cap) = vault::new<T>(ctx);
+    let (vault, vault_cap) = vault::create<T>(ctx);
             
     let vault_id = vault.id();
 
