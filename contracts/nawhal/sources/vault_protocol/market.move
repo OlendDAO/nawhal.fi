@@ -1,19 +1,22 @@
-// Copyright (c) Olend Labs.
-// SPDX-License-Identifier: Apache-2.0
 
-module narval::supply_pool;
 
-use narval::access::{Self, ActionRequest};
-use narval::debt::{Self, DebtRegistry, DebtShareBalance};
-use narval::debt_bag::{Self, DebtBag};
-use narval::equity::{Self, EquityTreasury, EquityShareBalance};
-use narval::piecewise::Piecewise;
-use narval::util;
+module narval::market;
+
 use std::type_name::TypeName;
+
 use sui::balance::{Self, Balance};
 use sui::clock::Clock;
 use sui::event;
 use sui::vec_map::{Self, VecMap};
+
+use narval::access::{Self, ActionRequest};
+use narval::account_ds::AccountRegistry;
+use narval::debt::{Self, DebtRegistry, DebtShareBalance};
+use narval::debt_bag::{Self, DebtBag};
+use narval::liquidity::{LiquidityLayer};
+use narval::piecewise::Piecewise;
+use narval::util;
+
 
 public use fun fds_facil_id as FacilDebtShare.facil_id;
 public use fun fds_borrow_inner as FacilDebtShare.borrow_inner;
@@ -57,6 +60,8 @@ const EInvalidSupplyPoolVersion: u64 = 5;
 /// The migration is not allowed because the object version is higher or equal to the module
 /// version.
 const ENotUpgrade: u64 = 6;
+/// The collateral amount is insufficient to repay the debt.
+const EInsufficientCollateral: u64 = 7;
 
 /* ================= access ================= */
 
@@ -69,15 +74,15 @@ public struct AMigrate has drop {}
 
 /* ================= structs ================= */
 
-public struct SupplyInfo has copy, drop {
-    supply_pool_id: ID,
+public struct MarketInfo has copy, drop {
+    market_id: ID,
     deposited: u64,
     share_balance: u64,
 }
 
 public struct WithdrawInfo has copy, drop {
-    supply_pool_id: ID,
-    share_balance: u64,
+    market_id: ID,
+    amount: u64,
     withdrawn: u64,
 }
 
@@ -108,10 +113,13 @@ public struct FacilDebtBag has key, store {
     inner: DebtBag,
 }
 
-public struct SupplyPool<phantom T, phantom ST> has key {
+public struct Market<phantom Collateral, phantom ST> has key {
     id: UID,
-    // The unutilized balance of the pool.
-    available_balance: Balance<T>,
+    // The unutilized balance of the self.
+    // available_balance: Balance<Collateral>,
+    collateral_amount: u64,
+    // The collateral amount of each user account in the market
+    collateral_info: VecMap<ID, u64>,
     // The interest fee in basis points.
     interest_fee_bps: u16,
     // Debt information for each lending facility.
@@ -119,56 +127,66 @@ public struct SupplyPool<phantom T, phantom ST> has key {
     // Total amount lent out.
     total_liabilities_x64: u128,
     // Last time the interest was accrued.
+
+    // Total borrowable amount for the market
+    borrowable_cap: u64,
+
     last_update_ts_sec: u64,
     // Shares of the supply.
-    supply_equity: EquityTreasury<ST>,
+    // supply_equity: EquityTreasury<ST>,
+
     // Shares of the collected fees.
-    collected_fees: EquityShareBalance<ST>,
-    // Versioning to facilitate upgrades.
+    // collected_fees: EquityShareBalance<ST>,
+    // Versioning to facilitate upgrades.   
     version: u16,
 }
 
 /* ================= upgrade ================= */
 
-public(package) fun check_version<T, ST>(pool: &SupplyPool<T, ST>) {
-    assert!(pool.version == MODULE_VERSION, EInvalidSupplyPoolVersion);
+public(package) fun check_version<T, ST>(self: &Market<T, ST>) {
+    assert!(self.version == MODULE_VERSION, EInvalidSupplyPoolVersion);
 }
 
-public fun migrate_supply_pool_version<T, ST>(
-    pool: &mut SupplyPool<T, ST>,
+public fun migrate_market_version<T, ST>(
+    self: &mut Market<T, ST>,
     ctx: &mut TxContext,
 ): ActionRequest {
-    assert!(pool.version < MODULE_VERSION, ENotUpgrade);
-    pool.version = MODULE_VERSION;
+    assert!(self.version < MODULE_VERSION, ENotUpgrade);
+    self.version = MODULE_VERSION;
     access::new_request(AMigrate {}, ctx)
 }
 
 /* ================= Pool ================= */
 
 public fun create_pool<T, ST: drop>(
-    equity_treasury: EquityTreasury<ST>,
+    // equity_treasury: EquityTreasury<ST>,
+    borrowable_cap: u64,
     ctx: &mut TxContext,
-): ActionRequest {
-    let registry = equity_treasury.borrow_registry();
-    assert!(
-        registry.supply_x64() == 0 && registry.underlying_value_x64() == 0,
-        EShareTreasuryNotEmpty,
-    );
+) {
+    // let registry = equity_treasury.borrow_registry();
+    // assert!(
+    //     registry.supply_x64() == 0 && registry.underlying_value_x64() == 0,
+    //     EShareTreasuryNotEmpty,
+    // );
 
-    let pool = SupplyPool<T, ST> {
+    let market = Market<T, ST> {
         id: object::new(ctx),
-        available_balance: balance::zero(),
+        // available_balance: balance::zero(),
+        collateral_amount: 0,
+        collateral_info: vec_map::empty(),
         interest_fee_bps: 0,
         debt_info: vec_map::empty(),
         total_liabilities_x64: 0,
+        borrowable_cap,
         last_update_ts_sec: 0,
-        supply_equity: equity_treasury,
-        collected_fees: equity::zero(),
+        // supply_equity: equity_treasury,
+        // collected_fees: equity::zero(),
         version: MODULE_VERSION,
     };
-    transfer::share_object(pool);
 
-    access::new_request(ACreatePool {}, ctx)
+    transfer::share_object(market);
+
+    // access::new_request(ACreatePool {}, ctx)
 }
 
 public fun create_lend_facil_cap(ctx: &mut TxContext): LendFacilCap {
@@ -176,15 +194,15 @@ public fun create_lend_facil_cap(ctx: &mut TxContext): LendFacilCap {
 }
 
 public fun add_lend_facil<T, ST: drop>(
-    pool: &mut SupplyPool<T, ST>,
+    self: &mut Market<T, ST>,
     facil_id: ID,
     interest_model: Piecewise,
     ctx: &mut TxContext,
 ): ActionRequest {
-    check_version(pool);
+    check_version(self);
 
-    let debt_registry = debt::create_registry_with_cap(pool.supply_equity.borrow_treasury_cap());
-    pool
+    let debt_registry = debt::create_registry_with_cap();
+    self
         .debt_info
         .insert(
             facil_id,
@@ -200,13 +218,13 @@ public fun add_lend_facil<T, ST: drop>(
 }
 
 public fun remove_lend_facil<T, ST>(
-    pool: &mut SupplyPool<T, ST>,
+    self: &mut Market<T, ST>,
     facil_id: ID,
     ctx: &mut TxContext,
 ): ActionRequest {
-    check_version(pool);
+    check_version(self);
 
-    let (_, info) = pool.debt_info.remove(&facil_id);
+    let (_, info) = self.debt_info.remove(&facil_id);
     let LendFacilInfo { interest_model: _, debt_registry, .. } = info;
     debt_registry.destroy_empty();
 
@@ -214,242 +232,229 @@ public fun remove_lend_facil<T, ST>(
 }
 
 public fun set_lend_facil_interest_model<T, ST>(
-    pool: &mut SupplyPool<T, ST>,
+    self: &mut Market<T, ST>,
     facil_id: ID,
     interest_model: Piecewise,
     ctx: &mut TxContext,
 ): ActionRequest {
-    check_version(pool);
+    check_version(self);
 
-    let info = &mut pool.debt_info[&facil_id];
+    let info = &mut self.debt_info[&facil_id];
     info.interest_model = interest_model;
 
     access::new_request(AConfigLendFacil {}, ctx)
 }
 
 public fun set_lend_facil_max_liability_outstanding<T, ST>(
-    pool: &mut SupplyPool<T, ST>,
+    self: &mut Market<T, ST>,
     facil_id: ID,
     max_liability_outstanding: u64,
     ctx: &mut TxContext,
 ): ActionRequest {
-    check_version(pool);
+    check_version(self);
 
-    let info = &mut pool.debt_info[&facil_id];
+    let info = &mut self.debt_info[&facil_id];
     info.max_liability_outstanding = max_liability_outstanding;
 
     access::new_request(AConfigLendFacil {}, ctx)
 }
 
 public fun set_lend_facil_max_utilization_bps<T, ST>(
-    pool: &mut SupplyPool<T, ST>,
+    self: &mut Market<T, ST>,
     facil_id: ID,
     max_utilization_bps: u64,
     ctx: &mut TxContext,
 ): ActionRequest {
-    check_version(pool);
+    check_version(self);
 
-    let info = &mut pool.debt_info[&facil_id];
+    let info = &mut self.debt_info[&facil_id];
     info.max_utilization_bps = max_utilization_bps;
 
     access::new_request(AConfigLendFacil {}, ctx)
 }
 
 public fun set_interest_fee_bps<T, ST>(
-    pool: &mut SupplyPool<T, ST>,
+    self: &mut Market<T, ST>,
     fee_bps: u16,
     ctx: &mut TxContext,
 ): ActionRequest {
-    check_version(pool);
+    check_version(self);
 
-    pool.interest_fee_bps = fee_bps;
+    self.interest_fee_bps = fee_bps;
     access::new_request(AConfigFees {}, ctx)
 }
 
-public fun take_collected_fees<T, ST>(
-    pool: &mut SupplyPool<T, ST>,
-    ctx: &mut TxContext,
-): (EquityShareBalance<ST>, ActionRequest) {
-    check_version(pool);
-    (pool.collected_fees.withdraw_all(), access::new_request(ATakeFees {}, ctx))
+// public fun take_collected_fees<T, ST>(
+//     self: &mut Market<T, ST>,
+//     ctx: &mut TxContext,
+// ): (EquityShareBalance<ST>, ActionRequest) {
+//     check_version(self);
+//     (self.collected_fees.withdraw_all(), access::new_request(ATakeFees {}, ctx))
+// }
+
+// /// Total balance of the self. This is the sum of the available balance and the borrowed amount
+// /// which is out on loan, or the total supply equity underlying value. In `UQ64.64` format.
+// public fun total_value_x64<T, ST>(self: &Market<T, ST>): u128 {
+public fun borrowable_cap<T, ST>(self: &Market<T, ST>): u128 {
+    // self.supply_equity.borrow_registry().underlying_value_x64()
+    self.borrowable_cap as u128
 }
 
-/// Total balance of the pool. This is the sum of the available balance and the borrowed amount
-/// which is out on loan, or the total supply equity underlying value. In `UQ64.64` format.
-public fun total_value_x64<T, ST>(pool: &SupplyPool<T, ST>): u128 {
-    pool.supply_equity.borrow_registry().underlying_value_x64()
-}
-
-public fun utilization_bps<T, ST>(pool: &SupplyPool<T, ST>): u64 {
-    let total_value_x64 = total_value_x64(pool);
+public fun utilization_bps<T, ST>(self: &Market<T, ST>): u64 {
+    let total_value_x64 = borrowable_cap(self);
     if (total_value_x64 == 0) {
         return 0
     };
 
     util::muldiv_u128(
-        pool.total_liabilities_x64,
+        self.total_liabilities_x64,
         10000,
         total_value_x64,
     ) as u64
 }
 
-/// Update the interest accrued since the last update and distribute the interest fee.
-public fun update_interest<T, ST>(pool: &mut SupplyPool<T, ST>, clock: &Clock) {
-    check_version(pool);
+// /// Update the interest accrued since the last update and distribute the interest fee.
+// public fun update_interest<T, ST>(self: &mut Market<T, ST>, clock: &Clock) {
+//     check_version(self);
 
-    let dt = util::timestamp_sec(clock) - pool.last_update_ts_sec;
-    if (dt == 0) {
-        return
-    };
-    let utilization_bps = utilization_bps(pool);
+//     let dt = util::timestamp_sec(clock) - self.last_update_ts_sec;
+//     if (dt == 0) {
+//         return
+//     };
+//     let utilization_bps = utilization_bps(self);
 
-    let mut total_liabilities_x64 = 0;
-    let mut i = 0;
-    let n = pool.debt_info.size();
-    while (i < n) {
-        let (_, info) = pool.debt_info.get_entry_by_idx_mut(i);
+//     let mut total_liabilities_x64 = 0;
+//     let mut i = 0;
+//     let n = self.debt_info.size();
+//     while (i < n) {
+//         let (_, info) = self.debt_info.get_entry_by_idx_mut(i);
 
-        let apr_bps = info.interest_model.value_at(utilization_bps);
-        let accrued_interest_x64 = util::muldiv_u128(
-            info.debt_registry.liability_value_x64(),
-            (apr_bps as u128) * (dt as u128),
-            100_00 * SECONDS_IN_YEAR,
-        );
-        let fee_x64 = util::muldiv_u128(accrued_interest_x64, pool.interest_fee_bps as u128, 10000);
+//         let apr_bps = info.interest_model.value_at(utilization_bps);
+//         let accrued_interest_x64 = util::muldiv_u128(
+//             info.debt_registry.liability_value_x64(),
+//             (apr_bps as u128) * (dt as u128),
+//             100_00 * SECONDS_IN_YEAR,
+//         );
+//         let fee_x64 = util::muldiv_u128(accrued_interest_x64, self.interest_fee_bps as u128, 10000);
 
-        // increase supply shares underlying value by the accrued interest, and collect the fee
-        let share_registry = pool.supply_equity.borrow_mut_registry();
-        share_registry.increase_value_x64(accrued_interest_x64 - fee_x64);
-        equity::join(
-            &mut pool.collected_fees,
-            equity::increase_value_and_issue_x64(share_registry, fee_x64),
-        );
+//         // // increase supply shares underlying value by the accrued interest, and collect the fee
+//         let share_registry = self.supply_equity.borrow_mut_registry();
+//         share_registry.increase_value_x64(accrued_interest_x64 - fee_x64);
+//         equity::join(
+//             &mut self.collected_fees,
+//             equity::increase_value_and_issue_x64(share_registry, fee_x64),
+//         );
 
-        // increase debt shares liability by the accrued interest
-        info.debt_registry.increase_liability_x64(accrued_interest_x64);
+//         // increase debt shares liability by the accrued interest
+//         info.debt_registry.increase_liability_x64(accrued_interest_x64);
 
-        total_liabilities_x64 = total_liabilities_x64 + info.debt_registry.liability_value_x64();
+//         total_liabilities_x64 = total_liabilities_x64 + info.debt_registry.liability_value_x64();
 
-        i = i + 1;
-    };
+//         i = i + 1;
+//     };
 
-    pool.total_liabilities_x64 = total_liabilities_x64;
-    pool.last_update_ts_sec = util::timestamp_sec(clock);
-}
+//     self.total_liabilities_x64 = total_liabilities_x64;
+//     self.last_update_ts_sec = util::timestamp_sec(clock);
+// }
 
 public(package) fun borrow_debt_registry<T, ST>(
-    pool: &mut SupplyPool<T, ST>,
+    self: &mut Market<T, ST>,
     id: &ID,
-    clock: &Clock,
+    _clock: &Clock,
 ): &DebtRegistry<ST> {
-    check_version(pool);
+    check_version(self);
 
-    update_interest(pool, clock);
-    let info = &pool.debt_info[id];
+    // update_interest(self, clock);
+    let info = &self.debt_info[id];
     &info.debt_registry
 }
 
-public fun supply<T, ST>(
-    pool: &mut SupplyPool<T, ST>,
+/// Deposit collateral into the market.
+public fun deposit_collateral<T, ST>(
+    self: &mut Market<T, ST>,
+    liquidity_layer: &mut LiquidityLayer,
+    account_registry: &mut AccountRegistry,
     balance: Balance<T>,
     clock: &Clock,
     ctx: &mut TxContext,
-): (Balance<ST>, ActionRequest) {
-    check_version(pool);
-    update_interest(pool, clock);
+) {
+    check_version(self);
 
-    let deposited = balance.value();
+    let collateral_amount = balance.value();
+    self.collateral_amount = self.collateral_amount + collateral_amount;
 
-    let registry = pool.supply_equity.borrow_mut_registry();
-    let shares = registry.increase_value_and_issue(balance.value());
-    pool.available_balance.join(balance);
+    let account_id = account_registry.borrow_or_create_profile(clock, ctx).account_id();
 
-    let share_balance = shares.into_balance_lossy(&mut pool.supply_equity);
-
-    event::emit(SupplyInfo {
-        supply_pool_id: pool.id.to_inner(),
-        deposited,
-        share_balance: share_balance.value(),
-    });
-
-    (share_balance, access::new_request(ADeposit {}, ctx))
+    if (self.collateral_info.try_get(&account_id).is_some()) {
+        let current_amount = self.collateral_info[&account_id];
+        *self.collateral_info.get_mut(&account_id) = current_amount + collateral_amount;
+    } else {
+        self.collateral_info.insert(account_id, collateral_amount);
+    };
+    
+    liquidity_layer.deposit_direct(self.market_id(),balance);  
 }
 
-/// Calculates the amount that will be withdrawn for the given amount of supply shares.
-public fun calc_withdraw_by_shares<T, ST>(
-    pool: &mut SupplyPool<T, ST>,
-    share_amount: u64,
-    clock: &Clock,
-): u64 {
-    check_version(pool);
-    update_interest(pool, clock);
-    equity::calc_redeem_lossy(
-        pool.supply_equity.borrow_registry(),
-        ((share_amount as u128) << 64),
-    )
-}
-
-/// Calculates the amount of  shares needed to withdraw the given amount. Since the redeemed amount
-/// can sometimes be higher than the requested amount due to rounding, this function also returns
-/// the actual
-/// amount that will be withdrawn.
-/// Returns `(share_amount, redeem_amount)`.
-public fun calc_withdraw_by_amount<T, ST>(
-    pool: &mut SupplyPool<T, ST>,
+/// Withdraw collateral from the market after repaid the debt.
+public fun withdraw_collateral<T, ST>(
+    self: &mut Market<T, ST>,
+    liquidity_layer: &mut LiquidityLayer,
+    account_registry: &mut AccountRegistry,
     amount: u64,
-    clock: &Clock,
-): (u64, u64) {
-    check_version(pool);
-    update_interest(pool, clock);
-    equity::calc_balance_redeem_for_amount(
-        pool.supply_equity.borrow_registry(),
-        amount,
-    )
-}
-
-public fun withdraw<T, ST>(
-    pool: &mut SupplyPool<T, ST>,
-    balance: Balance<ST>,
-    clock: &Clock,
+    ctx: &mut TxContext,
 ): Balance<T> {
-    check_version(pool);
-    update_interest(pool, clock);
+    check_version(self);
 
-    let share_balance = balance.value();
+    let account_id = account_registry.account_id_of_sure(ctx.sender());
+    let collateral_amount = self.collateral_info[&account_id];
 
-    let shares = equity::from_balance(&mut pool.supply_equity, balance);
-    let value = pool.supply_equity.borrow_mut_registry().redeem_lossy(shares);
+    assert!(amount <= collateral_amount, EInsufficientCollateral);
+
+    let market_id = self.market_id();
 
     event::emit(WithdrawInfo {
-        supply_pool_id: pool.id.to_inner(),
-        share_balance,
-        withdrawn: value,
+        market_id,
+        amount,
+        withdrawn: amount,
     });
 
-    pool.available_balance.split(value)
+    liquidity_layer.withdraw_direct(market_id, amount)
 }
 
-public(package) fun borrow<T, ST>(
-    pool: &mut SupplyPool<T, ST>,
+/// Borrow Assets from the market.
+/// Borrowing amount can't exceed the collateral value * ratio.
+/// TODO: pyth oracle price 
+public fun borrow<T, ST>(
+    self: &mut Market<T, ST>,
+    liquidity_layer: &mut LiquidityLayer,
+    account_registry: &mut AccountRegistry,
     facil_cap: &LendFacilCap,
     amount: u64,
     clock: &Clock,
+    ctx: &mut TxContext,
 ): (Balance<T>, FacilDebtShare<ST>) {
-    check_version(pool);
-    update_interest(pool, clock);
+    check_version(self);
+
     let facil_id = object::id(facil_cap);
 
-    let info = &mut pool.debt_info[&facil_id];
+    let market_id = self.market_id();
+
+    let info = &mut self.debt_info[&facil_id];
     let max_utilization_bps = info.max_utilization_bps;
     let max_liability_outstanding = info.max_liability_outstanding;
 
     let shares = info.debt_registry.increase_liability_and_issue(amount);
-    let balance = pool.available_balance.split(amount);
 
-    pool.total_liabilities_x64 = pool.total_liabilities_x64 + ((amount as u128) << 64);
+    // TODO: check withdrawable amount is less then collateral value * ratio
+    // check_borrowable_amount(self, amount);
+
+    // let balance = self.available_balance.split(amount);
+    let balance = liquidity_layer.withdraw_direct(market_id, amount);
+
+    self.total_liabilities_x64 = self.total_liabilities_x64 + ((amount as u128) << 64);
 
     let liability_after_borrow = ((info.debt_registry.liability_value_x64() >> 64) as u64);
-    let utilization_after_borrow = utilization_bps(pool);
+    let utilization_after_borrow = utilization_bps(self);
     assert!(liability_after_borrow < max_liability_outstanding, EMaxLiabilityOutstandingReached);
     assert!(utilization_after_borrow <= max_utilization_bps, EMaxUtilizationReached);
 
@@ -459,62 +464,66 @@ public(package) fun borrow<T, ST>(
 
 /// Calculates the debt amount that needs to be repaid for the given amount of debt shares.
 public fun calc_repay_by_shares<T, ST>(
-    pool: &mut SupplyPool<T, ST>,
+    self: &mut Market<T, ST>,
     fac_id: ID,
     share_value_x64: u128,
-    clock: &Clock,
+    _clock: &Clock,
 ): u64 {
-    check_version(pool);
-    update_interest(pool, clock);
-    let info = &pool.debt_info[&fac_id];
+    check_version(self);
+    // update_interest(self, clock);
+    let info = &self.debt_info[&fac_id];
     debt::calc_repay_lossy(&info.debt_registry, share_value_x64)
 }
 
 /// Calculates the debt share amount required to repay the given amount of debt.
 public fun calc_repay_by_amount<T, ST>(
-    pool: &mut SupplyPool<T, ST>,
+    self: &mut Market<T, ST>,
     fac_id: ID,
     amount: u64,
-    clock: &Clock,
+    _clock: &Clock,
 ): u128 {
-    check_version(pool);
-    update_interest(pool, clock);
-    let info = &pool.debt_info[&fac_id];
+    check_version(self);
+    // update_interest(self, clock);
+    let info = &self.debt_info[&fac_id];
     debt::calc_repay_for_amount(&info.debt_registry, amount)
 }
 
 public(package) fun repay<T, ST>(
-    pool: &mut SupplyPool<T, ST>,
+    self: &mut Market<T, ST>,
+    liquidity_layer: &mut LiquidityLayer,
     shares: FacilDebtShare<ST>,
     balance: Balance<T>,
-    clock: &Clock,
+    _clock: &Clock,
 ) {
-    check_version(pool);
-    update_interest(pool, clock);
+    check_version(self);
+    // update_interest(self, clock);
     let FacilDebtShare { facil_id, inner: shares } = shares;
 
-    let info = &mut pool.debt_info[&facil_id];
+    let info = &mut self.debt_info[&facil_id];
     let amount = info.debt_registry.repay_lossy(shares);
     assert!(balance.value() == amount, EInvalidRepayAmount);
 
-    pool.total_liabilities_x64 = pool.total_liabilities_x64 - ((amount as u128) << 64);
+    self.total_liabilities_x64 = self.total_liabilities_x64 - ((amount as u128) << 64);
 
-    pool.available_balance.join(balance);
+    liquidity_layer.deposit_direct(self.market_id(), balance);
+
+    // self.available_balance.join(balance);
 }
 
 /// Repays the maximum possible amount of debt shares given the balance.
 /// Returns the amount of debt shares and balance repaid.
 public(package) fun repay_max_possible<T, ST>(
-    pool: &mut SupplyPool<T, ST>,
+    self: &mut Market<T, ST>,
+    liquidity_layer: &mut LiquidityLayer,
     shares: &mut FacilDebtShare<ST>,
     balance: &mut Balance<T>,
     clock: &Clock,
 ): (u128, u64) {
-    check_version(pool);
+    check_version(self);
 
     let facil_id = shares.facil_id;
-    let balance_by_shares = calc_repay_by_shares(pool, facil_id, shares.value_x64(), clock);
-    let shares_by_balance = calc_repay_by_amount(pool, facil_id, balance.value(), clock);
+    let balance_by_shares = calc_repay_by_shares(self, facil_id, shares.value_x64(), clock);
+    let shares_by_balance = calc_repay_by_amount(self, facil_id, balance.value(), clock);
 
     let (share_amt, balance_amt) = if (balance.value() >= balance_by_shares) {
         (shares.value_x64(), balance_by_shares)
@@ -523,7 +532,8 @@ public(package) fun repay_max_possible<T, ST>(
         (shares_by_balance, balance.value())
     };
     repay(
-        pool,
+        self,
+        liquidity_layer,
         shares.split_x64(share_amt),
         balance.split(balance_amt),
         clock,
@@ -624,3 +634,10 @@ public(package) fun fdb_destroy_empty(self: FacilDebtBag) {
     id.delete();
     inner.destroy_empty();
 }
+
+/* ================= Market ================= */
+
+public(package) fun market_id<T, ST>(self: &Market<T, ST>): ID {
+    object::id(self)
+}
+

@@ -1,5 +1,4 @@
-// Copyright (c) Olend Labs.
-// SPDX-License-Identifier: Apache-2.0
+
 
 module narval::debt;
 
@@ -70,7 +69,8 @@ public fun create_registry<T: drop>(_: T): DebtRegistry<T> {
     }
 }
 
-public fun create_registry_with_cap<T: drop>(_: &TreasuryCap<T>): DebtRegistry<T> {
+// public fun create_registry_with_cap<T: drop>(_: &TreasuryCap<T>): DebtRegistry<T> {
+public fun create_registry_with_cap<T: drop>(): DebtRegistry<T> {
     DebtRegistry {
         supply_x64: 0,
         liability_value_x64: 0,

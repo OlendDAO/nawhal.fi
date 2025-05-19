@@ -1,5 +1,4 @@
-// Copyright (c) Olend Labs.
-// SPDX-License-Identifier: Apache-2.0
+
 
 module narval::vault;
 
@@ -673,7 +672,8 @@ public(package) fun withdraw_direct<T>(
     check_active_status(vault);
 
     check_reserved_funds_enough(vault, amount);
-    check_reserved_funds_enough_for_protocol(vault, protocol_id, amount);
+    // Can't match the borrow case, because a protocol can borrow a asset with another assets
+    // check_reserved_funds_enough_for_protocol(vault, protocol_id, amount);
 
     *vault.reserved_protocols.borrow_mut(protocol_id) = *vault.reserved_protocols.borrow(protocol_id) - amount;
     vault.reserved_funds = vault.reserved_funds - amount;

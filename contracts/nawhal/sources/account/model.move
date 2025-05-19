@@ -3,7 +3,7 @@
 module narval::account_ds;
 
 use std::ascii::String;
-use std::type_name::{Self, TypeName};
+// use std::type_name::{Self, TypeName};
 
 
 use sui::clock::Clock;
@@ -64,12 +64,12 @@ public struct AccountProfile has key, store {
     status: AccountProfileStatus,
 }
 
-/// The debt info of a pool
-public struct DebtInfo has store, copy, drop {
-    pool_id: ID,
-    debt_type: TypeName,
-    value: u64,
-}
+// /// The debt info of a pool
+// public struct DebtInfo has store, copy, drop {
+//     pool_id: ID,
+//     debt_type: TypeName,
+//     value: u64,
+// }
 
 /// The owner cap of the account
 public struct AccountProfileCap has key {
@@ -120,17 +120,16 @@ public fun new_profile(
 }
 
 
-
-public fun new_debt_info<T>(
-    pool_id: ID,
-    value: u64,
-): DebtInfo {
-    DebtInfo {
-        pool_id,
-        debt_type: type_name::get<T>(),
-        value,
-    }
-}
+// public fun new_debt_info<T>(
+//     pool_id: ID,
+//     value: u64,
+// ): DebtInfo {
+//     DebtInfo {
+//         pool_id,
+//         debt_type: type_name::get<T>(),
+//         value,
+//     }
+// }
 
 /// Share the AccountRegistry
 public fun share_registry(registry: AccountRegistry) {
@@ -280,7 +279,7 @@ public fun borrow_account_mut(self: &mut AccountRegistry, account_id: ID): &mut 
     self.accounts.borrow_mut(account_id)
 }
 
-/// Get ID of the `AccountProfileCap` by the given address
+/// Get ID of the `AccountProfie` by the given address
 public fun account_id_of(self: &AccountRegistry, owner: address): Option<ID> {
     if (self.owners.contains(owner)) {
         option::some(*self.owners.borrow(owner))
@@ -289,12 +288,15 @@ public fun account_id_of(self: &AccountRegistry, owner: address): Option<ID> {
     }
 }
 
+/// Get ID of the `AccountProfileCap` by the given address
+public fun account_id_of_sure(self: &AccountRegistry, owner: address): ID {
+    *account_id_of(self, owner).borrow()
+}
+
 /// Get the account id of the `AccountProfileCap`
 public fun account_of(self: &AccountProfileCap): ID {
     self.account_id
 }
-
-
 
 /// Validations
 /// Validate the name of `AccountProfile` must be less than MAX_NAME_LENGTH and not empty

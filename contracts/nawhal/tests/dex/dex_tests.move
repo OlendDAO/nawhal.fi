@@ -1,5 +1,4 @@
-// Copyright (c) Olend Labs.
-// SPDX-License-Identifier: Apache-2.0
+
 
 #[test_only]
 module narval::dex_tests;

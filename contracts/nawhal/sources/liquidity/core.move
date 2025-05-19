@@ -358,6 +358,16 @@ public fun deposit<T>(self: &mut LiquidityLayer, protocol_id: ID, payload: Balan
     }  
 }
 
+/// Deposit assets directly to the vault without minting YieldToken
+public(package) fun deposit_direct<T>(
+    self: &mut LiquidityLayer,
+    protocol_id: ID,
+    payment: Balance<T>,
+) {
+    let vault = self.borrow_vault_mut<T>();
+    vault.deposit_direct(protocol_id, payment);
+}
+
 /// The Protocol withdraws the assets from the LiquidityLayer.
 /// And update the protocol amount with protocol_id.
 /// Ignore the amount if the protocol amount is less than the amount.
@@ -394,6 +404,17 @@ public fun withdraw<T>(self: &mut LiquidityLayer, protocol_id: ID, shares: Balan
 
     withdrawn_balance_t
 }
+
+/// Withdraw assets directly from the vault without burning YieldToken
+public(package) fun withdraw_direct<T>(
+    self: &mut LiquidityLayer,
+    protocol_id: ID,
+    amount: u64,
+): Balance<T> {
+    let vault = self.borrow_vault_mut<T>();
+    vault.withdraw_direct(protocol_id, amount)
+}
+
 
 /* ================= Governance functions ================= */
 

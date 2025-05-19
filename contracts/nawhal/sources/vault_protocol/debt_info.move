@@ -1,10 +1,9 @@
-// Copyright (c) Olend Labs.
-// SPDX-License-Identifier: Apache-2.0
+
 
 module narval::debt_info;
 
 use narval::debt::DebtRegistry;
-use narval::supply_pool::SupplyPool;
+use narval::market::Market;
 use narval::util;
 use std::type_name::{Self, TypeName};
 use sui::clock::Clock;
@@ -44,9 +43,9 @@ public fun add<ST>(self: &mut DebtInfo, registry: &DebtRegistry<ST>) {
     self.map.insert(type_name::get<ST>(), entry);
 }
 
-public fun add_from_supply_pool<T, ST>(
+public fun add_from_market<T, ST>(
     self: &mut DebtInfo,
-    pool: &mut SupplyPool<T, ST>,
+    pool: &mut Market<T, ST>,
     clock: &Clock,
 ) {
     let facil_id = self.facil_id;
