@@ -3,20 +3,20 @@ name = "narval"
 edition = "2024.beta" # edition = "legacy" to use legacy (pre-2024) Move
 # license = ""           # e.g., "MIT", "GPL", "Apache 2.0"
 # authors = ["..."]      # e.g., ["Joe Smith (joesmith@noemail.com)", "John Snow (johnsnow@noemail.com)"]
-published-at = "0x891b34e2e9d6976f42a40520d862d69e1030969670c5f5f11aad3dce3a374255"
+published-at = "0x33047971c0172f7f4d8f9d0b41d2e5400d2cab4ec040202a7113c08f453acfd6"
 
 [dependencies]
 Sui = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/sui-framework", rev = "mainnet-v1.41.2", override = true }
 MoveStdlib = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/move-stdlib", rev = "mainnet-v1.41.2", override = true }
 
-Pyth = { local = "../_vendor/Pyth" }
+# Pyth = { local = "../_vendor/Pyth" }
 
-WHUSDCE = { local = "../_vendor/whUSDCe" }
-WHUSDTE = { local = "../_vendor/whUSDTe" }
-usdc = { local = "../_vendor/USDC/usdc" }
-SuiUsdt = { local = "../_vendor/SuiUsdt" }
-USDY = { local = "../_vendor/USDY" }
-DEEP = { local = "../_vendor/DEEP" }
+# WHUSDCE = { local = "../_vendor/whUSDCe" }
+# WHUSDTE = { local = "../_vendor/whUSDTe" }
+# usdc = { local = "../_vendor/USDC/usdc" }
+# SuiUsdt = { local = "../_vendor/SuiUsdt" }
+# USDY = { local = "../_vendor/USDY" }
+# DEEP = { local = "../_vendor/DEEP" }
 
 # Sui = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/sui-framework", rev = "framework/testnet" }
 # Sui = { local = "../../../../movecodes/sui/crates/sui-framework/packages/sui-framework" }
@@ -32,7 +32,8 @@ DEEP = { local = "../_vendor/DEEP" }
 # Override = { local = "../conflicting/version", override = true }
 
 [addresses]
-narval = "0x891b34e2e9d6976f42a40520d862d69e1030969670c5f5f11aad3dce3a374255"
+# narval = "0x0"
+narval = "0x33047971c0172f7f4d8f9d0b41d2e5400d2cab4ec040202a7113c08f453acfd6"
 
 # Named addresses will be accessible in Move as `@name`. They're also exported:
 # for example, `std = "0x1"` is exported by the Standard Library.
