@@ -41,13 +41,7 @@ public struct LendingProtocol<phantom T> has key, store {
     created_at_epoch: u64,
 }
 
-// ------- init ------- //
-// /// Initialize the lending protocol and share it to the sender
-// fun init(ctx: &mut TxContext) {
-
-// }
-
-// ------- Logic ------- //
+// ------- Business Logic ------- //
 /// Deposit assets to the protocol
 public fun deposit<T>(
     self: &mut LendingProtocol<T>, 

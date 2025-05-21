@@ -12,10 +12,7 @@ use narval::protocol;
 
 /* ================= constants ================= */
 
-// const BPS_IN_100_PCT: u64 = 10000;
 
-// /* ================= errors ================= */
-// const EInvalidWeights: u64 = 0;
 
 /* ================= Logic functions ================= */
 /// Entry fun for depoist

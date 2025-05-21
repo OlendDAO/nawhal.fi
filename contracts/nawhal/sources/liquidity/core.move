@@ -381,12 +381,6 @@ public fun withdraw<T>(self: &mut LiquidityLayer, protocol_id: ID, shares: Balan
 
     self.check_protocol_exists(&protocol_id);
     self.check_asset_type_exists(pt);
-    // self.check_protocol_asset_type_match(&protocol_id, &pt);
-
-    // Initial check based on shares value might be inaccurate, 
-    // but necessary if layer withdraw requires shares
-    // A better check might involve simulating the withdrawal value first.
-    // assert!(self.get_protocol_amount(&protocol_id) >= shares.value(), EProtocolInsufficientBalance);
     
     let current_epoch = ctx.epoch();
     // let shares_value_for_event = shares.value(); // Keep for event
@@ -414,7 +408,6 @@ public(package) fun withdraw_direct<T>(
     let vault = self.borrow_vault_mut<T>();
     vault.withdraw_direct(protocol_id, amount)
 }
-
 
 /* ================= Governance functions ================= */
 

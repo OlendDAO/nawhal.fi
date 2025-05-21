@@ -1,4 +1,4 @@
-//! Event module for nawhal
+//! Event module for liquidity layer
 
 module narval::layer_event;
 

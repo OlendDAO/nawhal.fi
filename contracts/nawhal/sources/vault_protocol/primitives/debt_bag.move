@@ -7,6 +7,7 @@ use std::type_name::{Self, TypeName};
 use sui::bag::{Self, Bag};
 
 const EAssetShareTypeMismatch: u64 = 0;
+
 /// The requested asset or share type does not exist in the debt bag.
 const ETypeDoesNotExist: u64 = 1;
 

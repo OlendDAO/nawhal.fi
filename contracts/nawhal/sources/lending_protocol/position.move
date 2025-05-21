@@ -7,6 +7,7 @@ use sui::balance::Balance;
 use sui::vec_map::VecMap;
 
 use narval::common::{YieldToken};
+
 // ------- Structs ------- //
 /// The staking info of a vault
 public struct StakingInfo<phantom T> has store {

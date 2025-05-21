@@ -10,8 +10,7 @@ use narval::access::{VaultAccess};
 use narval::common::{YieldToken};
 
 /* ================= Errors ================= */
-// const EInvalidLiquidityStatus: u64 = 0;
-// const EAssetTypeAlreadyExisted: u64 = 1;
+
 
 /* ================= Structs ================= */
 

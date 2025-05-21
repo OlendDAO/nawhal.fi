@@ -107,11 +107,6 @@ fun check_state_after_op<T>(
 
     let registry = sc.take_shared<AccountRegistry>();
     let profile_cap = sc.take_from_sender<AccountProfileCap>();
-    // let profile = registry.borrow_account_mut(profile_cap.account_of());
-    // Use the known protocol ID directly
-    // let protocol_obj = sc.take_shared_by_id<LendingProtocol<T>>(protocol_id); // Take again as it was returned
-    // let actual_protocol_id = protocol_obj.protocol_id(); // Get ID here
-    // assert!(actual_protocol_id == protocol_id, 98); // Sanity check
     
     assert_eq(protocol.staking_total_amount<T>(profile_cap.account_of()), expected_profile_stake);
     

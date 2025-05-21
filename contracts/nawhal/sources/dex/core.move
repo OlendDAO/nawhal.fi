@@ -2,7 +2,6 @@
 
 module narval::dex;
 
-// use std::type_name;
 use std::u128;
 
 use sui::balance::{Self, Balance, Supply, create_supply};
@@ -30,13 +29,6 @@ const ENoLiquidity: vector<u8> = b"Pool has no liquidity";
 
 #[error]
 const EInvalidFeeParam: vector<u8> = b"Fee parameter is not valid.";
-
-// #[error]
-// const EInvalidPair: vector<u8> =
-//     b"Pool pair coin types must be ordered alphabetically (`A` < `B`) and mustn't be equal.";
-
-// #[error]
-// const EPoolAlreadyExists: vector<u8> = b"Pool for this pair already exists";
 
 /* ================= events ================= */
 

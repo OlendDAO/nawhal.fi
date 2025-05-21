@@ -1,5 +1,4 @@
-// Copyright (c) Olend Labs.
-// SPDX-License-Identifier: Apache-2.0
+
 
 /// `TimeLockedBalance` locks a `Balance<T>` such that only `unlock_per_second` of the amount
 /// gets unlocked (and becomes withdrawable) every second starting from `unlock_start_ts_sec`.

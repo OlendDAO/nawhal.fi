@@ -27,14 +27,6 @@ public fun new_pool_pair_item(a: TypeName, b: TypeName): PoolPairItem {
     }
 }
 
-// /// Creat a new empty `PoolRegistry`.
-// fun new_registry(ctx: &mut TxContext): PoolRegistry {
-//     PoolRegistry {
-//         id: object::new(ctx),
-//         table: table::new(ctx),
-//     }
-// }
-
 // returns:
 //    0 if a < b,
 //    1 if a == b,

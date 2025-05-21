@@ -119,18 +119,6 @@ public fun new_profile(
     (profile, cap)
 }
 
-
-// public fun new_debt_info<T>(
-//     pool_id: ID,
-//     value: u64,
-// ): DebtInfo {
-//     DebtInfo {
-//         pool_id,
-//         debt_type: type_name::get<T>(),
-//         value,
-//     }
-// }
-
 /// Share the AccountRegistry
 public fun share_registry(registry: AccountRegistry) {
     transfer::share_object(registry);
